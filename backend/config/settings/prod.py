@@ -1,9 +1,28 @@
 from .base import *  # noqa: F401,F403
 
-DEBUG = False
+DEBUG = env.bool("DEBUG", default=False)  # noqa: F405
 
 JWT_COOKIE_SECURE = True
 JWT_COOKIE_SAMESITE = "None"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django": {
+            "handlers": ["console"],
+            "level": "ERROR",
+        },
+    },
+}
 
 SECURE_SSL_REDIRECT = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
