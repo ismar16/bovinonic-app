@@ -17,6 +17,7 @@ const PULL_TABLES = [
 ] as const;
 
 const LAST_PULL_KEY = 'last_pull_at';
+const CHUNK_SIZE = 20;
 
 export async function refreshPendingCount(): Promise<void> {
 	if (!browser) return;
@@ -50,14 +51,15 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 
 	try {
 		const pending = await db.outbox.orderBy('id').toArray();
-		if (pending.length > 0) {
+		for (let start = 0; start < pending.length; start += CHUNK_SIZE) {
+			const chunk = pending.slice(start, start + CHUNK_SIZE);
 			const collections: Record<string, Record<string, unknown>[]> = {};
-			for (const entry of pending) {
+			for (const entry of chunk) {
 				(collections[entry.collection] ??= []).push(entry.payload);
 			}
 			const results = await pushBatch(farm.id, collections);
 			const confirmedIds = new Set<string>();
-			for (const [collection, entries] of Object.entries(results)) {
+			for (const entries of Object.values(results)) {
 				for (const entry of entries) {
 					confirmedIds.add(entry.id);
 					if (entry.historical_warning) {
@@ -70,7 +72,8 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 			await db.outbox
 				.filter((entry) => confirmedIds.has(entry.record_id))
 				.delete();
-			pushed = confirmedIds.size;
+			pushed += confirmedIds.size;
+			await refreshPendingCount();
 		}
 
 		const lastPull = await db.sync_meta.get(LAST_PULL_KEY);
