@@ -5,11 +5,13 @@
 	let {
 		onSelect,
 		filterStatus = 'active',
-		category = null
+		category = null,
+		sex = null
 	}: {
 		onSelect: (animal: Animal) => void;
 		filterStatus?: string | null;
 		category?: string | null;
+		sex?: 'M' | 'H' | null;
 	} = $props();
 
 	let query = $state('');
@@ -22,6 +24,7 @@
 		let all = await db.animals.where('farm').equals(farm.id).toArray();
 		if (filterStatus) all = all.filter((a) => a.status === filterStatus);
 		if (category) all = all.filter((a) => a.category === category);
+		if (sex) all = all.filter((a) => a.sex === sex);
 		results = term === '' ? [] : all.filter((a) => a.tag.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)).slice(0, 8);
 	}
 

@@ -65,6 +65,11 @@
 
 			<nav class="mb-4 grid grid-cols-1 gap-2">
 				<a
+					href="/animals/new"
+					class="flex h-14 items-center justify-center rounded-md border-2 border-black bg-black text-xl font-extrabold text-white"
+					>Nuevo animal</a
+				>
+				<a
 					href="/weighing"
 					class="flex h-14 items-center justify-center rounded-md bg-green-700 text-xl font-extrabold text-white"
 					>Pesaje rápido</a

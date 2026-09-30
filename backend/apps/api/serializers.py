@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
@@ -44,6 +45,16 @@ class AnimalSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tag_field = self.fields.get("tag")
+        if tag_field is not None:
+            tag_field.validators = [
+                v
+                for v in tag_field.validators
+                if not isinstance(v, UniqueValidator)
+            ]
 
 
 class AnimalEventSerializer(serializers.ModelSerializer):
