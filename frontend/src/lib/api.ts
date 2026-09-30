@@ -1,0 +1,89 @@
+import { browser } from '$app/environment';
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
+
+export class ApiError extends Error {
+	constructor(
+		public statusCode: number,
+		message: string,
+		public body: unknown = null
+	) {
+		super(message);
+	}
+}
+
+async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
+	const response = await fetch(`${BASE_URL}${path}`, {
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json', ...options.headers },
+		...options
+	});
+
+	if (response.status === 401 && retry && browser) {
+		const refreshed = await fetch(`${BASE_URL}/api/auth/refresh`, {
+			method: 'POST',
+			credentials: 'include'
+		});
+		if (refreshed.ok) {
+			return request(path, options, false);
+		}
+	}
+
+	if (!response.ok) {
+		let body: unknown = null;
+		try {
+			body = await response.json();
+		} catch {
+			// non-JSON body
+		}
+		throw new ApiError(response.status, `API ${response.status}`, body);
+	}
+	return response;
+}
+
+export interface User {
+	id: number;
+	username: string;
+	farms: { id: string; farm: string; farm_name: string; role: string }[];
+}
+
+export async function login(username: string, password: string): Promise<void> {
+	await request('/api/auth/login', {
+		method: 'POST',
+		body: JSON.stringify({ username, password })
+	});
+}
+
+export async function logout(): Promise<void> {
+	await request('/api/auth/logout', { method: 'POST' });
+}
+
+export async function me(): Promise<User> {
+	const response = await request('/api/auth/me');
+	return response.json();
+}
+
+export async function pull(farmId: string, since?: string): Promise<Record<string, unknown[]>> {
+	const params = new URLSearchParams({ farm: farmId });
+	if (since) params.set('since', since);
+	const response = await request(`/api/sync/pull?${params.toString()}`);
+	return response.json();
+}
+
+export interface BatchResultEntry {
+	id: string;
+	status: 'created' | 'updated';
+	historical_warning?: boolean;
+}
+
+export async function pushBatch(
+	farmId: string,
+	collections: Record<string, Record<string, unknown>[]>
+): Promise<Record<string, BatchResultEntry[]>> {
+	const response = await request('/api/sync/batch', {
+		method: 'POST',
+		body: JSON.stringify({ farm: farmId, ...collections })
+	});
+	const data = await response.json();
+	return data.results;
+}
