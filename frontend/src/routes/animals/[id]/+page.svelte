@@ -33,7 +33,16 @@
 		const asFather = await db.animals.where('farm').equals(found.farm).filter((a) => a.father === found.id).toArray();
 		offspring = [...asMother, ...asFather];
 		weighings = (await db.weighings.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
-		milkings = (await db.milkings.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
+		const rawMilkings = (await db.milkings.where('animal').equals(found.id).sortBy('date')).reverse();
+		const seenShifts = new Set<string>();
+		milkings = rawMilkings
+			.filter((m) => {
+				const key = `${m.date}|${m.shift}`;
+				if (seenShifts.has(key)) return false;
+				seenShifts.add(key);
+				return true;
+			})
+			.slice(0, 10);
 		reproEvents = (await db.reproductive_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
 		healthEvents = (await db.health_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
 	});

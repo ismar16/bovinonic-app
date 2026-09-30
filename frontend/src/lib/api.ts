@@ -89,6 +89,7 @@ export interface BatchResultEntry {
 	id: string;
 	status: 'created' | 'updated';
 	historical_warning?: boolean;
+	merged_into?: string;
 }
 
 export async function pushBatch(

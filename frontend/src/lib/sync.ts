@@ -24,6 +24,24 @@ export async function refreshPendingCount(): Promise<void> {
 	pendingCount.set(await db.outbox.count());
 }
 
+async function dedupeLocalMilkings(): Promise<void> {
+	const all = await db.milkings.toArray();
+	all.sort((a, b) => (a.id < b.id ? -1 : 1));
+	const seen = new Set<string>();
+	const toDelete: string[] = [];
+	for (const m of all) {
+		const key = `${m.animal}|${m.date}|${m.shift}`;
+		if (seen.has(key)) {
+			toDelete.push(m.id);
+		} else {
+			seen.add(key);
+		}
+	}
+	if (toDelete.length > 0) {
+		await db.milkings.bulkDelete(toDelete);
+	}
+}
+
 export async function enqueue(
 	collection: OutboxRecord['collection'],
 	payload: Record<string, unknown> & { id: string }
@@ -59,9 +77,13 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 			}
 			const results = await pushBatch(farm.id, collections);
 			const confirmedIds = new Set<string>();
-			for (const entries of Object.values(results)) {
+			const mergedIds: { collection: string; id: string }[] = [];
+			for (const [collection, entries] of Object.entries(results)) {
 				for (const entry of entries) {
 					confirmedIds.add(entry.id);
+					if (entry.merged_into) {
+						mergedIds.push({ collection, id: entry.id });
+					}
 					if (entry.historical_warning) {
 						warnings.push(
 							`El animal del registro ${entry.id} figura como vendido/muerto. Se guardó como histórico.`
@@ -72,6 +94,9 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 			await db.outbox
 				.filter((entry) => confirmedIds.has(entry.record_id))
 				.delete();
+			for (const merged of mergedIds) {
+				await db.table(merged.collection).delete(merged.id);
+			}
 			pushed += confirmedIds.size;
 			await refreshPendingCount();
 		}
@@ -85,6 +110,7 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 			}
 		});
 		await db.sync_meta.put({ key: LAST_PULL_KEY, value: new Date().toISOString() });
+		await dedupeLocalMilkings();
 
 		lastSyncResult.set(new Date().toISOString());
 		syncError.set(null);
