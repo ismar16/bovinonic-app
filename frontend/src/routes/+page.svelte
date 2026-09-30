@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 
 	import { me } from '$lib/api';
+	import { computeReproAlerts, computeWithdrawalCount } from '$lib/alerts';
 	import { db, type Animal } from '$lib/db';
 	import { currentFarm, online, sessionUser } from '$lib/stores';
 	import { syncNow } from '$lib/sync';
@@ -10,6 +11,10 @@
 	let query = $state('');
 	let animals = $state<Animal[]>([]);
 	let ready = $state(false);
+	let calvingSoonCount = $state(0);
+	let dryingOffCount = $state(0);
+	let daysOpenCount = $state(0);
+	let withdrawalsCount = $state(0);
 
 	onMount(async () => {
 		if (!getFarm()) {
@@ -42,6 +47,11 @@
 		const farm = getFarm();
 		if (!farm) return;
 		animals = await db.animals.where('farm').equals(farm.id).toArray();
+		const alerts = await computeReproAlerts(farm.id);
+		calvingSoonCount = alerts.calvingSoon.length;
+		dryingOffCount = alerts.dryingOffSoon.length;
+		daysOpenCount = alerts.daysOpen.length;
+		withdrawalsCount = await computeWithdrawalCount(farm.id);
 	}
 
 	let filtered = $derived(
@@ -62,6 +72,25 @@
 		{#if $currentFarm}
 			<h1 class="mb-1 text-2xl font-extrabold">{$currentFarm.name}</h1>
 			<p class="mb-4 text-sm font-bold text-neutral-700">Rol: {$currentFarm.role}</p>
+
+			<div class="mb-4 grid grid-cols-4 gap-2 text-center">
+				<a href="/" class="rounded-md border-2 border-black p-2">
+					<p class="text-2xl font-extrabold">{animals.filter((a) => a.status === 'active').length}</p>
+					<p class="text-xs font-bold">Activos</p>
+				</a>
+				<a href="/alerts" class="rounded-md border-2 border-black p-2">
+					<p class="text-2xl font-extrabold">{calvingSoonCount}</p>
+					<p class="text-xs font-bold">Por parir</p>
+				</a>
+				<a href="/alerts" class="rounded-md border-2 border-yellow-600 p-2">
+					<p class="text-2xl font-extrabold">{dryingOffCount + daysOpenCount}</p>
+					<p class="text-xs font-bold">Alertas</p>
+				</a>
+				<a href="/health/withdrawals" class="rounded-md border-2 border-red-700 p-2">
+					<p class="text-2xl font-extrabold text-red-700">{withdrawalsCount}</p>
+					<p class="text-xs font-bold text-red-700">Retiros</p>
+				</a>
+			</div>
 
 			<nav class="mb-4 grid grid-cols-1 gap-2">
 				<a

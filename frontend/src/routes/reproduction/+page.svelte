@@ -55,6 +55,8 @@
 		if (type === 'service') {
 			payload.service_method = serviceMethod;
 			payload.bull_straw = bullStraw;
+			payload.estimated_calving_date = estimatedCalving;
+			payload.suggested_drying_off_date = suggestedDryingOff;
 		}
 		if (type === 'palpation') {
 			payload.palpation_result = palpationResult;
