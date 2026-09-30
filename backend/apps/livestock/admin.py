@@ -33,6 +33,7 @@ class AnimalAdmin(admin.ModelAdmin):
         "sex",
         "category",
         "status",
+        "status_changed_at",
         "owner",
         "brand",
         "paddock",

@@ -136,6 +136,12 @@ class Animal(TimeStampedModel):
     status = models.CharField(
         _("estado"), max_length=20, choices=Status.choices, default=Status.ACTIVE
     )
+    status_changed_at = models.DateField(
+        _("fecha de cambio de estado"), null=True, blank=True
+    )
+    status_reason = models.CharField(
+        _("motivo del cambio de estado"), max_length=255, blank=True
+    )
 
     class Meta:
         indexes = [

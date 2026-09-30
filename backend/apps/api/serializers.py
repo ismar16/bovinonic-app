@@ -42,7 +42,7 @@ class AnimalSerializer(serializers.ModelSerializer):
         fields = [
             "id", "farm", "tag", "name", "sex", "category", "birth_date",
             "mother", "father", "paddock", "owner", "brand", "status",
-            "updated_at",
+            "status_changed_at", "status_reason", "updated_at",
         ]
         read_only_fields = ["updated_at"]
 

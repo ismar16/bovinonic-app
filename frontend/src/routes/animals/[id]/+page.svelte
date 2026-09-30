@@ -75,6 +75,26 @@
 			{#if animal.birth_date}
 				<p class="text-sm">Nacimiento: {animal.birth_date}</p>
 			{/if}
+			{#if animal.status !== 'active' && animal.status_changed_at}
+				<p class="mt-1 text-sm font-bold text-red-700">
+					{animal.status} el {animal.status_changed_at}{animal.status_reason
+						? ` — ${animal.status_reason}`
+						: ''}
+				</p>
+			{/if}
+		</div>
+
+		<div class="grid grid-cols-2 gap-2">
+			<a
+				href="/animals/{animal.id}/edit"
+				class="flex h-14 items-center justify-center rounded-md border-2 border-black font-extrabold"
+				>Editar datos</a
+			>
+			<a
+				href="/animals/{animal.id}/status"
+				class="flex h-14 items-center justify-center rounded-md bg-red-700 font-extrabold text-white"
+				>Cambio de estado</a
+			>
 		</div>
 
 		<section class="rounded-md border-2 border-black p-4">

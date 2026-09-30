@@ -45,6 +45,8 @@ export interface Animal {
 	owner: string | null;
 	brand: string | null;
 	status: 'active' | 'sold' | 'dead' | 'culled';
+	status_changed_at?: string | null;
+	status_reason?: string;
 	updated_at: string;
 }
 
