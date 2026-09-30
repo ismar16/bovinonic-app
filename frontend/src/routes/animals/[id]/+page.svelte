@@ -13,7 +13,14 @@
 	let milkings = $state<Milking[]>([]);
 	let reproEvents = $state<ReproductiveEvent[]>([]);
 	let healthEvents = $state<HealthEvent[]>([]);
+	let activeWithdrawal = $state<string | null>(null);
 	let notFound = $state(false);
+
+	function addDays(isoDate: string, days: number): string {
+		const d = new Date(`${isoDate}T00:00:00`);
+		d.setDate(d.getDate() + days);
+		return d.toISOString().slice(0, 10);
+	}
 
 	onMount(async () => {
 		const id = page.params.id;
@@ -45,6 +52,13 @@
 			.slice(0, 10);
 		reproEvents = (await db.reproductive_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
 		healthEvents = (await db.health_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
+		const today = new Date().toISOString().slice(0, 10);
+		const active = healthEvents
+			.map((e) => e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0))
+			.filter((end) => end >= today)
+			.sort()
+			.reverse();
+		activeWithdrawal = active[0] ?? null;
 	});
 
 	const TYPE_LABELS: Record<string, string> = {
@@ -96,6 +110,12 @@
 				>Cambio de estado</a
 			>
 		</div>
+
+		{#if activeWithdrawal}
+			<p class="rounded-md border-2 border-red-700 bg-red-50 p-3 font-bold text-red-700">
+				Retiro vigente hasta {activeWithdrawal} — leche/carne no apta.
+			</p>
+		{/if}
 
 		<section class="rounded-md border-2 border-black p-4">
 			<h2 class="mb-2 text-xl font-extrabold">Genealogía</h2>

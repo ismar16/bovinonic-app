@@ -84,6 +84,16 @@
 					class="flex h-14 items-center justify-center rounded-md bg-green-700 text-xl font-extrabold text-white"
 					>Evento reproductivo</a
 				>
+				<a
+					href="/health"
+					class="flex h-14 items-center justify-center rounded-md bg-green-700 text-xl font-extrabold text-white"
+					>Evento sanitario</a
+				>
+				<a
+					href="/health/withdrawals"
+					class="flex h-14 items-center justify-center rounded-md border-2 border-red-700 text-xl font-extrabold text-red-700"
+					>Retiros activos</a
+				>
 			</nav>
 
 			<input
