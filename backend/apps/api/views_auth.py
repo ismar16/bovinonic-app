@@ -17,7 +17,7 @@ def set_auth_cookies(response, access, refresh=None):
         max_age=int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()),
         httponly=True,
         secure=settings.JWT_COOKIE_SECURE,
-        samesite="Lax",
+        samesite=settings.JWT_COOKIE_SAMESITE,
         path="/",
     )
     if refresh is not None:
@@ -27,7 +27,7 @@ def set_auth_cookies(response, access, refresh=None):
             max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
             httponly=True,
             secure=settings.JWT_COOKIE_SECURE,
-            samesite="Lax",
+            samesite=settings.JWT_COOKIE_SAMESITE,
             path="/api/auth/",
         )
 

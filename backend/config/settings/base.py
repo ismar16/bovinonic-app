@@ -123,3 +123,4 @@ SIMPLE_JWT = {
 JWT_AUTH_COOKIE = "ganaderia_access"
 JWT_AUTH_REFRESH_COOKIE = "ganaderia_refresh"
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
+JWT_COOKIE_SAMESITE = env.str("JWT_COOKIE_SAMESITE", default="Lax")
