@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { online, pendingCount, syncing } from '$lib/stores';
+	import { online, pendingCount, syncing, syncError } from '$lib/stores';
 </script>
 
 <header
@@ -18,3 +18,8 @@
 		{/if}
 	</span>
 </header>
+{#if $syncError}
+	<div class="border-b-2 border-red-700 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">
+		Error de sincronización: {$syncError}
+	</div>
+{/if}

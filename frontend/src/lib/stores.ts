@@ -5,6 +5,7 @@ export const online = writable(browser ? navigator.onLine : true);
 export const pendingCount = writable(0);
 export const syncing = writable(false);
 export const lastSyncResult = writable<string | null>(null);
+export const syncError = writable<string | null>(null);
 export const currentFarm = writable<{ id: string; name: string; role: string } | null>(null);
 export const sessionUser = writable<{ id: number; username: string } | null>(null);
 

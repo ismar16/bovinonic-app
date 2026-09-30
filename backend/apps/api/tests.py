@@ -171,6 +171,39 @@ class SyncApiTests(TestCase):
         response = self.client.get(f"/api/sync/pull?farm={self.farm.id}")
         self.assertEqual(response.status_code, 403)
 
+    def test_duplicate_milking_merges_into_existing(self):
+        self.login()
+        first_id = str(uuid.uuid4())
+        second_id = str(uuid.uuid4())
+        payload = {
+            "farm": str(self.farm.id),
+            "milkings": [
+                {
+                    "id": first_id,
+                    "animal": str(self.animal.id),
+                    "date": "2026-09-29",
+                    "shift": "AM",
+                    "liters": "5.00",
+                },
+                {
+                    "id": second_id,
+                    "animal": str(self.animal.id),
+                    "date": "2026-09-29",
+                    "shift": "AM",
+                    "liters": "6.50",
+                },
+            ],
+        }
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(Milking.objects.count(), 1)
+        self.assertEqual(float(Milking.objects.get().liters), 6.50)
+        entries = response.data["results"]["milkings"]
+        self.assertEqual(entries[0]["status"], "created")
+        self.assertEqual(entries[1]["status"], "updated")
+        self.assertEqual(entries[1]["id"], second_id)
+        self.assertIn("merged_into", entries[1])
+
     def test_offline_stress_100_records_idempotent_resend(self):
         self.login()
         animals = [

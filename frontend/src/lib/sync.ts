@@ -1,9 +1,9 @@
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 
-import { pull, pushBatch } from './api';
+import { ApiError, pull, pushBatch } from './api';
 import { db, type OutboxRecord } from './db';
-import { currentFarm, lastSyncResult, online, pendingCount, syncing } from './stores';
+import { currentFarm, lastSyncResult, online, pendingCount, syncError, syncing } from './stores';
 
 const PULL_TABLES = [
 	'owners',
@@ -84,6 +84,19 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 		await db.sync_meta.put({ key: LAST_PULL_KEY, value: new Date().toISOString() });
 
 		lastSyncResult.set(new Date().toISOString());
+		syncError.set(null);
+	} catch (error) {
+		if (error instanceof ApiError) {
+			const detail =
+				error.body && typeof error.body === 'object' && 'detail' in error.body
+					? String((error.body as { detail: unknown }).detail)
+					: `Error del servidor (${error.statusCode})`;
+			syncError.set(detail);
+		} else if (error instanceof TypeError) {
+			syncError.set(null);
+		} else {
+			syncError.set('Error inesperado al sincronizar.');
+		}
 	} finally {
 		syncing.set(false);
 		await refreshPendingCount();

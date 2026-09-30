@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.response import Response
@@ -115,9 +115,37 @@ class SyncBatchView(APIView):
                         validated = dict(serializer.validated_data)
                         if model is not Animal:
                             validated.pop("farm", None)
-                        obj, created = model.objects.update_or_create(
-                            id=record_id, defaults=validated
-                        )
+                        try:
+                            with transaction.atomic():
+                                obj, created = model.objects.update_or_create(
+                                    id=record_id, defaults=validated
+                                )
+                        except IntegrityError as exc:
+                            if model is Milking:
+                                existing = Milking.objects.filter(
+                                    animal=validated.get("animal"),
+                                    date=validated.get("date"),
+                                    shift=validated.get("shift"),
+                                ).first()
+                                if existing is not None:
+                                    for field_name, value in validated.items():
+                                        setattr(existing, field_name, value)
+                                    existing.save()
+                                    collection_results.append(
+                                        {
+                                            "id": record_id,
+                                            "status": "updated",
+                                            "merged_into": str(existing.id),
+                                        }
+                                    )
+                                    continue
+                            collection_errors.append(
+                                {
+                                    "id": record_id,
+                                    "error": f"Conflicto con un registro existente: {exc}",
+                                }
+                            )
+                            continue
                         if obj.farm_id != farm_id:
                             raise ValueError(
                                 f"El registro {record_id} pertenece a otra finca."

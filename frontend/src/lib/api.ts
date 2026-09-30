@@ -1,5 +1,7 @@
 import { browser } from '$app/environment';
 
+import { online } from './stores';
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
 
 export class ApiError extends Error {
@@ -12,15 +14,28 @@ export class ApiError extends Error {
 	}
 }
 
+async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
+	try {
+		const response = await fetch(input, init);
+		online.set(true);
+		return response;
+	} catch (error) {
+		if (error instanceof TypeError) {
+			online.set(false);
+		}
+		throw error;
+	}
+}
+
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
-	const response = await fetch(`${BASE_URL}${path}`, {
+	const response = await safeFetch(`${BASE_URL}${path}`, {
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json', ...options.headers },
 		...options
 	});
 
 	if (response.status === 401 && retry && browser) {
-		const refreshed = await fetch(`${BASE_URL}/api/auth/refresh`, {
+		const refreshed = await safeFetch(`${BASE_URL}/api/auth/refresh`, {
 			method: 'POST',
 			credentials: 'include'
 		});
