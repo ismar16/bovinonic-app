@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { Beef, Bell, Milk, Ban } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
 	import { me } from '$lib/api';
 	import { computeReproAlerts, computeWithdrawalCount } from '$lib/alerts';
+	import * as Card from '$lib/components/ui/card';
 	import { db, type Animal } from '$lib/db';
+	import { milkTodayTotal } from '$lib/reports';
 	import { availableFarms, currentFarm, online, sessionUser } from '$lib/stores';
 	import { syncNow } from '$lib/sync';
 
 	let animals = $state<Animal[]>([]);
 	let ready = $state(false);
+	let milkToday = $state(0);
 	let calvingSoonCount = $state(0);
 	let dryingOffCount = $state(0);
 	let daysOpenCount = $state(0);
@@ -54,9 +58,41 @@
 		dryingOffCount = alerts.dryingOffSoon.length;
 		daysOpenCount = alerts.daysOpen.length;
 		withdrawalsCount = await computeWithdrawalCount(farm.id);
+		milkToday = await milkTodayTotal(farm.id);
 	}
 
 	let activeCount = $derived(animals.filter((a) => a.status === 'active').length);
+
+	let kpis = $derived([
+		{
+			href: '/herd',
+			value: activeCount,
+			label: 'Animales activos',
+			icon: Beef,
+			tone: 'default'
+		},
+		{
+			href: '/reports/milk',
+			value: `${milkToday} L`,
+			label: 'Producción de hoy',
+			icon: Milk,
+			tone: 'default'
+		},
+		{
+			href: '/alerts',
+			value: calvingSoonCount + dryingOffCount + daysOpenCount,
+			label: 'Alertas reproductivas',
+			icon: Bell,
+			tone: 'warn'
+		},
+		{
+			href: '/health/withdrawals',
+			value: withdrawalsCount,
+			label: 'Retiros activos',
+			icon: Ban,
+			tone: 'danger'
+		}
+	]);
 </script>
 
 <svelte:head><title>Inicio · Gestión Ganadera</title></svelte:head>
@@ -64,23 +100,34 @@
 {#if ready}
 	<div class="pt-4">
 		{#if $currentFarm}
-			<div class="mb-4 grid grid-cols-2 gap-2 text-center">
-				<a href="/herd" class="rounded-md border-2 border-black p-3">
-					<p class="text-3xl font-extrabold">{activeCount}</p>
-					<p class="text-xs font-bold">Animales activos</p>
-				</a>
-				<a href="/alerts" class="rounded-md border-2 border-black p-3">
-					<p class="text-3xl font-extrabold">{calvingSoonCount}</p>
-					<p class="text-xs font-bold">Próximas a parir</p>
-				</a>
-				<a href="/alerts" class="rounded-md border-2 border-yellow-600 p-3">
-					<p class="text-3xl font-extrabold">{dryingOffCount + daysOpenCount}</p>
-					<p class="text-xs font-bold">Alertas reproductivas</p>
-				</a>
-				<a href="/health/withdrawals" class="rounded-md border-2 border-red-700 p-3">
-					<p class="text-3xl font-extrabold text-red-700">{withdrawalsCount}</p>
-					<p class="text-xs font-bold text-red-700">Retiros activos</p>
-				</a>
+			<div class="grid grid-cols-2 gap-3">
+				{#each kpis as kpi (kpi.label)}
+					<a href={kpi.href}>
+						<Card.Root
+							class="h-full {kpi.tone === 'danger' && kpi.value !== 0 && kpi.value !== '0 L'
+								? 'border-red-700'
+								: kpi.tone === 'warn' && kpi.value !== 0
+									? 'border-yellow-600'
+									: ''}"
+						>
+							<Card.Header class="flex-row items-center justify-between p-4 pb-2">
+								<Card.Title class="text-xs font-bold uppercase text-neutral-600">
+									{kpi.label}
+								</Card.Title>
+								<kpi.icon
+									class="h-5 w-5 {kpi.tone === 'danger'
+										? 'text-red-700'
+										: kpi.tone === 'warn'
+											? 'text-yellow-700'
+											: 'text-primary'}"
+								/>
+							</Card.Header>
+							<Card.Content class="p-4 pt-0">
+								<p class="text-3xl font-extrabold">{kpi.value}</p>
+							</Card.Content>
+						</Card.Root>
+					</a>
+				{/each}
 			</div>
 		{:else}
 			<p class="pt-8 text-center">Sin finca asignada. Contactá al administrador.</p>

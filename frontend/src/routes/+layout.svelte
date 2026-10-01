@@ -5,6 +5,7 @@
 	import { useRegisterSW } from 'virtual:pwa-register/svelte';
 
 	import BottomNav from '$lib/components/BottomNav.svelte';
+	import QuickActionsFab from '$lib/components/QuickActionsFab.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import { refreshPendingCount, startAutoSync } from '$lib/sync';
 
@@ -35,5 +36,6 @@
 	</main>
 	{#if !isLogin}
 		<BottomNav />
+		<QuickActionsFab />
 	{/if}
 </div>

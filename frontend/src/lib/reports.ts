@@ -29,6 +29,12 @@ export function daysAgo(n: number): string {
 	return d.toISOString().slice(0, 10);
 }
 
+export async function milkTodayTotal(farmId: string): Promise<number> {
+	const today = daysAgo(0);
+	const rows = await milkByDay(farmId, today, today);
+	return rows.length > 0 ? rows[0].total : 0;
+}
+
 export async function milkByDay(
 	farmId: string,
 	from: string,
