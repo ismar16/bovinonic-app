@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
@@ -232,14 +233,14 @@
 		</p>
 	{/if}
 
-	<button
+	<Button
 		type="button"
 		onclick={save}
 		disabled={saved || checking}
-		class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white disabled:opacity-50"
+		class="h-14 w-full text-xl font-extrabold"
 	>
 		{saved ? 'Guardado ✓' : checking ? 'Verificando…' : 'Guardar animal'}
-	</button>
+	</Button>
 
 	<button
 		type="button"

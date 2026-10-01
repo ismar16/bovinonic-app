@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button';
 	import { goto } from '$app/navigation';
 
 	import TagSearch from '$lib/components/TagSearch.svelte';
@@ -144,14 +145,14 @@
 			</p>
 		{/if}
 
-		<button
+		<Button
 			type="button"
 			onclick={save}
 			disabled={saved}
-			class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white disabled:opacity-50"
+			class="h-14 w-full text-xl font-extrabold"
 		>
 			{saved ? 'Guardado ✓' : 'Guardar evento sanitario'}
-		</button>
+		</Button>
 
 		<button
 			type="button"
