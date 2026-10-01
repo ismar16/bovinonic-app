@@ -142,6 +142,7 @@ class Animal(TimeStampedModel):
     status_reason = models.CharField(
         _("motivo del cambio de estado"), max_length=255, blank=True
     )
+    photo_url = models.URLField(_("foto"), blank=True)
 
     class Meta:
         indexes = [

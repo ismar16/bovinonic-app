@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 
 import { ApiError, pull, pushBatch } from './api';
 import { db, type OutboxRecord } from './db';
-import { currentFarm, lastSyncResult, online, pendingCount, syncError, syncing } from './stores';
+import { currentFarm, lastSyncResult, online, pendingCount, syncError, syncing, syncWarnings } from './stores';
 
 const PULL_TABLES = [
 	'owners',
@@ -84,6 +84,11 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 					if (entry.merged_into) {
 						mergedIds.push({ collection, id: entry.id });
 					}
+					if (entry.conflict) {
+						warnings.push(
+							`El registro ${entry.id} fue modificado en otro dispositivo; se aplicó tu versión.`
+						);
+					}
 					if (entry.historical_warning) {
 						warnings.push(
 							`El animal del registro ${entry.id} figura como vendido/muerto. Se guardó como histórico.`
@@ -114,6 +119,7 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 
 		lastSyncResult.set(new Date().toISOString());
 		syncError.set(null);
+		syncWarnings.set(warnings);
 	} catch (error) {
 		if (error instanceof ApiError) {
 			const detail =

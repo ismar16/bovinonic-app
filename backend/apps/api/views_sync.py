@@ -162,7 +162,9 @@ class SyncBatchView(APIView):
                         if model in EVENT_MODELS:
                             validated["farm_id"] = validated["animal"].farm_id
                         _apply_computed_fields(model, validated)
-                        validated_records.append((str(record_id), validated))
+                        validated_records.append(
+                            (str(record_id), validated, record.get("updated_at"))
+                        )
 
                     if collection_errors:
                         errors[name] = collection_errors
@@ -171,22 +173,23 @@ class SyncBatchView(APIView):
                     if not validated_records:
                         continue
 
-                    record_ids = [rid for rid, _ in validated_records]
-                    existing_farms = {
-                        str(row["id"]): row["farm_id"]
+                    record_ids = [rid for rid, _, _ in validated_records]
+                    existing_rows = {
+                        str(row["id"]): row
                         for row in model.objects.filter(id__in=record_ids).values(
-                            "id", "farm_id"
+                            "id", "farm_id", "updated_at"
                         )
                     }
                     for rid in record_ids:
-                        if rid in existing_farms and existing_farms[rid] != farm_id:
+                        row = existing_rows.get(rid)
+                        if row and row["farm_id"] != farm_id:
                             raise ValueError(
                                 f"El registro {rid} pertenece a otra finca."
                             )
 
                     animal_status = {}
                     if model in EVENT_MODELS:
-                        animal_ids = {v["animal"].id for _, v in validated_records}
+                        animal_ids = {v["animal"].id for _, v, _ in validated_records}
                         animal_status = {
                             str(a.id): a.status
                             for a in Animal.objects.filter(id__in=animal_ids).only(
@@ -198,8 +201,8 @@ class SyncBatchView(APIView):
                     if model is Milking:
                         keys = {
                             (v["animal"].id, v["date"], v["shift"])
-                            for rid, v in validated_records
-                            if rid not in existing_farms
+                            for rid, v, _ in validated_records
+                            if rid not in existing_rows
                         }
                         if keys:
                             candidates = Milking.objects.filter(
@@ -215,8 +218,8 @@ class SyncBatchView(APIView):
                     entries = []
                     now = timezone.now()
                     batch_milking_keys = {}
-                    for rid, validated in validated_records:
-                        if model is Milking and rid not in existing_farms:
+                    for rid, validated, client_updated_at in validated_records:
+                        if model is Milking and rid not in existing_rows:
                             key = (
                                 validated["animal"].id,
                                 validated["date"],
@@ -250,12 +253,17 @@ class SyncBatchView(APIView):
                         obj_data["updated_at"] = now
                         obj = model(id=rid, **obj_data)
                         entry = {"id": rid, "status": None}
-                        if rid in existing_farms:
+                        if rid in existing_rows:
                             to_update.append(obj)
                             update_fields.update(
                                 k for k in obj_data.keys() if k != "farm_id"
                             )
                             entry["status"] = "updated"
+                            if client_updated_at:
+                                client_ts = parse_datetime(str(client_updated_at))
+                                server_ts = existing_rows[rid]["updated_at"]
+                                if client_ts and server_ts and server_ts > client_ts:
+                                    entry["conflict"] = True
                         else:
                             to_create.append(obj)
                             entry["status"] = "created"

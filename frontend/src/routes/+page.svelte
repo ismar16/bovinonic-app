@@ -5,7 +5,8 @@
 	import { me } from '$lib/api';
 	import { computeReproAlerts, computeWithdrawalCount } from '$lib/alerts';
 	import { db, type Animal } from '$lib/db';
-	import { currentFarm, online, sessionUser } from '$lib/stores';
+	import { switchFarm } from '$lib/session';
+	import { availableFarms, currentFarm, online, sessionUser } from '$lib/stores';
 	import { syncNow } from '$lib/sync';
 
 	let query = $state('');
@@ -21,6 +22,9 @@
 			try {
 				const user = await me();
 				sessionUser.set({ id: user.id, username: user.username });
+				availableFarms.set(
+					user.farms.map((f) => ({ id: f.farm, name: f.farm_name, role: f.role }))
+				);
 				if (user.farms.length === 0) {
 					ready = true;
 					return;
@@ -72,6 +76,21 @@
 		{#if $currentFarm}
 			<h1 class="mb-1 text-2xl font-extrabold">{$currentFarm.name}</h1>
 			<p class="mb-4 text-sm font-bold text-neutral-700">Rol: {$currentFarm.role}</p>
+
+			{#if $availableFarms.length > 1}
+				<select
+					class="mb-4 h-14 w-full rounded-md border-2 border-black bg-white px-4 text-xl font-bold"
+					value={$currentFarm.id}
+					onchange={(e) => {
+						const selected = $availableFarms.find((f) => f.id === e.currentTarget.value);
+						if (selected) void switchFarm(selected);
+					}}
+				>
+					{#each $availableFarms as farm (farm.id)}
+						<option value={farm.id}>{farm.name}</option>
+					{/each}
+				</select>
+			{/if}
 
 			<div class="mb-4 grid grid-cols-4 gap-2 text-center">
 				<a href="/" class="rounded-md border-2 border-black p-2">

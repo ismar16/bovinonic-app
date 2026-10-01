@@ -47,6 +47,7 @@ export interface Animal {
 	status: 'active' | 'sold' | 'dead' | 'culled';
 	status_changed_at?: string | null;
 	status_reason?: string;
+	photo_url?: string;
 	updated_at: string;
 }
 

@@ -90,6 +90,7 @@ export interface BatchResultEntry {
 	status: 'created' | 'updated';
 	historical_warning?: boolean;
 	merged_into?: string;
+	conflict?: boolean;
 }
 
 export interface FarmUser {

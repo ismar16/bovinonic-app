@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { login, me } from '$lib/api';
-	import { currentFarm, sessionUser } from '$lib/stores';
+	import { currentFarm, sessionUser, availableFarms } from '$lib/stores';
 	import { syncNow } from '$lib/sync';
 
 	let username = $state('');
@@ -18,6 +18,9 @@
 			const user = await me();
 			sessionUser.set({ id: user.id, username: user.username });
 			if (user.farms.length > 0) {
+				availableFarms.set(
+					user.farms.map((f) => ({ id: f.farm, name: f.farm_name, role: f.role }))
+				);
 				const first = user.farms[0];
 				currentFarm.set({ id: first.farm, name: first.farm_name, role: first.role });
 				await syncNow();

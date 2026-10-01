@@ -235,6 +235,39 @@ class SyncApiTests(TestCase):
         self.assertEqual(entries[1]["id"], second_id)
         self.assertIn("merged_into", entries[1])
 
+    def test_conflict_flag_when_server_record_is_newer(self):
+        self.login("boss")
+        animal_id = str(uuid.uuid4())
+        payload = {
+            "farm": str(self.farm.id),
+            "animals": [
+                {
+                    "id": animal_id,
+                    "tag": "CONF-001",
+                    "name": "V1",
+                    "sex": "H",
+                    "category": "calf",
+                    "birth_date": None,
+                    "mother": None,
+                    "father": None,
+                    "paddock": None,
+                    "owner": None,
+                    "brand": None,
+                    "status": "active",
+                }
+            ],
+        }
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        payload["animals"][0]["name"] = "V2-older-copy"
+        payload["animals"][0]["updated_at"] = "2020-01-01T00:00:00+00:00"
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        entry = response.data["results"]["animals"][0]
+        self.assertEqual(entry["status"], "updated")
+        self.assertTrue(entry["conflict"])
+
     def test_catalog_sync_admin_only(self):
         paddock_id = str(uuid.uuid4())
         payload = {

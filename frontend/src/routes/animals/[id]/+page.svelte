@@ -94,6 +94,13 @@
 		</p>
 	{:else if animal}
 		<div class="rounded-md border-2 border-black p-4">
+			{#if animal.photo_url}
+				<img
+					src={animal.photo_url}
+					alt="Foto de {animal.tag}"
+					class="mb-3 w-full rounded-md border-2 border-black object-cover"
+				/>
+			{/if}
 			<p class="text-3xl font-extrabold">{animal.tag}</p>
 			<p class="text-lg">{animal.name || 'Sin nombre'}</p>
 			<p class="mt-1 text-sm font-bold uppercase">
