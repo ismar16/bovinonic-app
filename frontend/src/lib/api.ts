@@ -92,6 +92,32 @@ export interface BatchResultEntry {
 	merged_into?: string;
 }
 
+export interface FarmUser {
+	id: string;
+	username: string;
+	role: string;
+	is_active: boolean;
+}
+
+export async function listFarmUsers(farmId: string): Promise<FarmUser[]> {
+	const params = new URLSearchParams({ farm: farmId });
+	const response = await request(`/api/manage/users?${params.toString()}`);
+	return response.json();
+}
+
+export async function createFarmUser(
+	farmId: string,
+	username: string,
+	password: string,
+	role: string
+): Promise<void> {
+	const response = await request('/api/manage/users', {
+		method: 'POST',
+		body: JSON.stringify({ farm: farmId, username, password, role })
+	});
+	await response.json();
+}
+
 export async function pushBatch(
 	farmId: string,
 	collections: Record<string, Record<string, unknown>[]>

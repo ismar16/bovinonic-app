@@ -235,6 +235,51 @@ class SyncApiTests(TestCase):
         self.assertEqual(entries[1]["id"], second_id)
         self.assertIn("merged_into", entries[1])
 
+    def test_catalog_sync_admin_only(self):
+        paddock_id = str(uuid.uuid4())
+        payload = {
+            "farm": str(self.farm.id),
+            "paddocks": [{"id": paddock_id, "name": "Potrero Sur"}],
+        }
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 401)
+
+        self.login()
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+        self.login("boss")
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        from apps.livestock.models import Paddock
+
+        self.assertEqual(Paddock.objects.filter(name="Potrero Sur").count(), 1)
+        response = self.client.post("/api/sync/batch", payload, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Paddock.objects.filter(name="Potrero Sur").count(), 1)
+
+    def test_manage_users_admin_only(self):
+        self.login("boss")
+        response = self.client.post(
+            "/api/manage/users",
+            {
+                "farm": str(self.farm.id),
+                "username": "tecnico1",
+                "password": "password123",
+                "role": "technician",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        response = self.client.get(f"/api/manage/users?farm={self.farm.id}")
+        self.assertEqual(response.status_code, 200)
+        usernames = [u["username"] for u in response.data]
+        self.assertIn("tecnico1", usernames)
+
+        self.login()
+        response = self.client.get(f"/api/manage/users?farm={self.farm.id}")
+        self.assertEqual(response.status_code, 403)
+
     def test_offline_stress_100_records_idempotent_resend(self):
         self.login()
         animals = [

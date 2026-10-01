@@ -128,6 +128,18 @@
 					class="flex h-14 items-center justify-center rounded-md border-2 border-black text-xl font-extrabold"
 					>Reportes</a
 				>
+				{#if $currentFarm.role === 'admin'}
+					<a
+						href="/catalogs"
+						class="flex h-14 items-center justify-center rounded-md border-2 border-black text-xl font-extrabold"
+						>Catálogos</a
+					>
+					<a
+						href="/users"
+						class="flex h-14 items-center justify-center rounded-md border-2 border-black text-xl font-extrabold"
+						>Usuarios</a
+					>
+				{/if}
 			</nav>
 
 			<input

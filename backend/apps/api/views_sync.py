@@ -42,6 +42,9 @@ PULL_COLLECTIONS = {
 
 WRITE_COLLECTIONS = {
     "animals": (Animal, AnimalSerializer, FarmMembership.Role.TECHNICIAN),
+    "owners": (Owner, OwnerSerializer, FarmMembership.Role.ADMIN),
+    "brands": (Brand, BrandSerializer, FarmMembership.Role.ADMIN),
+    "paddocks": (Paddock, PaddockSerializer, FarmMembership.Role.ADMIN),
     "weighings": (Weighing, WeighingSerializer, FarmMembership.Role.OPERATOR),
     "milkings": (Milking, MilkingSerializer, FarmMembership.Role.OPERATOR),
     "reproductive_events": (
@@ -55,6 +58,9 @@ WRITE_COLLECTIONS = {
         FarmMembership.Role.TECHNICIAN,
     ),
 }
+
+EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
+CATALOG_MODELS = (Animal, Owner, Brand, Paddock)
 
 ROLE_RANK = {
     FarmMembership.Role.OPERATOR: 1,
@@ -144,7 +150,7 @@ class SyncBatchView(APIView):
                             )
                             continue
                         data = {k: v for k, v in record.items() if k != "id"}
-                        if model is Animal:
+                        if model in CATALOG_MODELS:
                             data["farm"] = str(farm_id)
                         serializer = serializer_class(data=data)
                         if not serializer.is_valid():
@@ -153,7 +159,7 @@ class SyncBatchView(APIView):
                             )
                             continue
                         validated = dict(serializer.validated_data)
-                        if model is not Animal:
+                        if model in EVENT_MODELS:
                             validated["farm_id"] = validated["animal"].farm_id
                         _apply_computed_fields(model, validated)
                         validated_records.append((str(record_id), validated))
@@ -179,7 +185,7 @@ class SyncBatchView(APIView):
                             )
 
                     animal_status = {}
-                    if model is not Animal:
+                    if model in EVENT_MODELS:
                         animal_ids = {v["animal"].id for _, v in validated_records}
                         animal_status = {
                             str(a.id): a.status
@@ -256,7 +262,7 @@ class SyncBatchView(APIView):
                             if model is Milking:
                                 batch_milking_keys[key] = obj
                         if (
-                            model is not Animal
+                            model in EVENT_MODELS
                             and animal_status.get(str(validated["animal"].id))
                             != Animal.Status.ACTIVE
                         ):

@@ -27,6 +27,7 @@ class BrandSerializer(serializers.ModelSerializer):
         model = Brand
         fields = ["id", "farm", "title_owner", "code", "updated_at"]
         read_only_fields = ["updated_at"]
+        validators = []
 
 
 class PaddockSerializer(serializers.ModelSerializer):
@@ -34,6 +35,7 @@ class PaddockSerializer(serializers.ModelSerializer):
         model = Paddock
         fields = ["id", "farm", "name", "updated_at"]
         read_only_fields = ["updated_at"]
+        validators = []
 
 
 class AnimalSerializer(serializers.ModelSerializer):

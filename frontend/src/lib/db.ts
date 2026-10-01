@@ -94,7 +94,15 @@ export interface HealthEvent {
 
 export interface OutboxRecord {
 	id?: number;
-	collection: 'animals' | 'weighings' | 'milkings' | 'reproductive_events' | 'health_events';
+	collection:
+		| 'animals'
+		| 'owners'
+		| 'brands'
+		| 'paddocks'
+		| 'weighings'
+		| 'milkings'
+		| 'reproductive_events'
+		| 'health_events';
 	record_id: string;
 	payload: Record<string, unknown>;
 	created_at: string;
