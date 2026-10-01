@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
+	import { Badge } from '$lib/components/ui/badge';
+	import * as Tabs from '$lib/components/ui/tabs';
 	import { db, type Animal, type HealthEvent, type Milking, type ReproductiveEvent, type Weighing } from '$lib/db';
 
 	let animal = $state<Animal | null>(null);
@@ -61,10 +63,18 @@
 		activeWithdrawal = active[0] ?? null;
 	});
 
-	const TYPE_LABELS: Record<string, string> = {heat: 'Celo', service: 'Servicio', palpation: 'Palpación',
+	const TYPE_LABELS: Record<string, string> = {
+		heat: 'Celo', service: 'Servicio', palpation: 'Palpación',
 		calving: 'Parto', drying_off: 'Secado', abortion: 'Aborto',
 		vaccine: 'Vacuna', deworming: 'Desparasitación',
 		antibiotic: 'Antibiótico', vitamin: 'Vitamina'
+	};
+	const STATUS_LABELS: Record<string, string> = {
+		active: 'Activo', sold: 'Vendido', dead: 'Muerto', culled: 'Descarte'
+	};
+	const CATEGORY_LABELS: Record<string, string> = {
+		calf: 'Ternero/a', heifer: 'Novillo/a', cow_lactating: 'Vaca en ordeño',
+		cow_dry: 'Vaca seca', bull: 'Toro reproductor'
 	};
 
 	let weightCurve = $derived.by(() => {
@@ -74,11 +84,9 @@
 		const min = Math.min(...values);
 		const max = Math.max(...values);
 		const span = max - min || 1;
-		const width = 300;
-		const height = 60;
 		const coords = points.map((w, i) => {
-			const x = (i / (points.length - 1)) * width;
-			const y = height - ((parseFloat(w.weight_kg) - min) / span) * height;
+			const x = (i / (points.length - 1)) * 300;
+			const y = 60 - ((parseFloat(w.weight_kg) - min) / span) * 60;
 			return `${x.toFixed(1)},${y.toFixed(1)}`;
 		});
 		return { path: coords.join(' '), min, max };
@@ -101,137 +109,172 @@
 					class="mb-3 w-full rounded-md border-2 border-black object-cover"
 				/>
 			{/if}
-			<p class="text-3xl font-extrabold">{animal.tag}</p>
-			<p class="text-lg">{animal.name || 'Sin nombre'}</p>
-			<p class="mt-1 text-sm font-bold uppercase">
-				{animal.sex} · {animal.category} ·
-				<span class={animal.status === 'active' ? 'text-green-700' : 'text-red-700'}>
-					{animal.status}
-				</span>
-			</p>
-			{#if animal.birth_date}
-				<p class="text-sm">Nacimiento: {animal.birth_date}</p>
-			{/if}
+			<div class="flex items-start justify-between gap-2">
+				<div>
+					<p class="text-3xl font-extrabold">{animal.tag}</p>
+					<p class="text-lg">{animal.name || 'Sin nombre'}</p>
+					<p class="text-sm font-bold uppercase text-neutral-600">
+						{animal.sex} · {CATEGORY_LABELS[animal.category] ?? animal.category}
+					</p>
+				</div>
+				<div class="flex flex-col items-end gap-1">
+					<Badge
+						class={animal.status === 'active'
+							? 'bg-green-700 text-white'
+							: 'bg-red-700 text-white'}
+					>
+						{STATUS_LABELS[animal.status] ?? animal.status}
+					</Badge>
+					{#if activeWithdrawal}
+						<Badge class="bg-red-700 text-white">Retiro hasta {activeWithdrawal}</Badge>
+					{/if}
+				</div>
+			</div>
 			{#if animal.status !== 'active' && animal.status_changed_at}
 				<p class="mt-1 text-sm font-bold text-red-700">
-					{animal.status} el {animal.status_changed_at}{animal.status_reason
+					{STATUS_LABELS[animal.status]} el {animal.status_changed_at}{animal.status_reason
 						? ` — ${animal.status_reason}`
 						: ''}
 				</p>
 			{/if}
 		</div>
 
-		<div class="grid grid-cols-2 gap-2">
-			<a
-				href="/animals/{animal.id}/edit"
-				class="flex h-14 items-center justify-center rounded-md border-2 border-black font-extrabold"
-				>Editar datos</a
-			>
-			<a
-				href="/animals/{animal.id}/status"
-				class="flex h-14 items-center justify-center rounded-md bg-red-700 font-extrabold text-white"
-				>Cambio de estado</a
-			>
-		</div>
+		<Tabs.Root value="general">
+			<Tabs.List class="grid w-full grid-cols-4">
+				<Tabs.Trigger value="general">General</Tabs.Trigger>
+				<Tabs.Trigger value="production">Producción</Tabs.Trigger>
+				<Tabs.Trigger value="reproduction">Repro</Tabs.Trigger>
+				<Tabs.Trigger value="health">Sanidad</Tabs.Trigger>
+			</Tabs.List>
 
-		{#if activeWithdrawal}
-			<p class="rounded-md border-2 border-red-700 bg-red-50 p-3 font-bold text-red-700">
-				Retiro vigente hasta {activeWithdrawal} — leche/carne no apta.
-			</p>
-		{/if}
+			<Tabs.Content value="general">
+				<div class="flex flex-col gap-4 pt-2">
+					<section class="rounded-md border-2 border-black p-4">
+						<h2 class="mb-2 text-lg font-extrabold">Datos</h2>
+						{#if animal.birth_date}
+							<p><span class="font-bold">Nacimiento:</span> {animal.birth_date}</p>
+						{/if}
+						<p><span class="font-bold">Madre:</span> {mother ? `${mother.tag} ${mother.name}` : '—'}</p>
+						<p><span class="font-bold">Padre:</span> {father ? `${father.tag} ${father.name}` : '—'}</p>
+						{#if offspring.length > 0}
+							<p class="mt-2 font-bold">Crías:</p>
+							<ul class="ml-4 list-disc">
+								{#each offspring as calf (calf.id)}
+									<li>
+										<a href="/animals/{calf.id}" class="underline">{calf.tag} {calf.name}</a>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</section>
+					<div class="grid grid-cols-2 gap-2">
+						<a
+							href="/animals/{animal.id}/edit"
+							class="flex h-14 items-center justify-center rounded-md border-2 border-black font-extrabold"
+							>Editar datos</a
+						>
+						<a
+							href="/animals/{animal.id}/status"
+							class="flex h-14 items-center justify-center rounded-md bg-red-700 font-extrabold text-white"
+							>Cambio de estado</a
+						>
+					</div>
+				</div>
+			</Tabs.Content>
 
-		<section class="rounded-md border-2 border-black p-4">
-			<h2 class="mb-2 text-xl font-extrabold">Genealogía</h2>
-			<p><span class="font-bold">Madre:</span> {mother ? `${mother.tag} ${mother.name}` : '—'}</p>
-			<p><span class="font-bold">Padre:</span> {father ? `${father.tag} ${father.name}` : '—'}</p>
-			{#if offspring.length > 0}
-				<p class="mt-2 font-bold">Crías:</p>
-				<ul class="ml-4 list-disc">
-					{#each offspring as calf (calf.id)}
-						<li>
-							<a href="/animals/{calf.id}" class="underline">{calf.tag} {calf.name}</a>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</section>
+			<Tabs.Content value="production">
+				<div class="flex flex-col gap-4 pt-2">
+					<section class="rounded-md border-2 border-black p-4">
+						<h2 class="mb-2 text-lg font-extrabold">Pesajes</h2>
+						{#if weightCurve}
+							<svg viewBox="0 0 300 60" class="mb-2 w-full" role="img" aria-label="Curva de peso">
+								<polyline points={weightCurve.path} fill="none" stroke="black" stroke-width="2" />
+							</svg>
+							<p class="mb-2 flex justify-between text-xs font-bold">
+								<span>Mín {weightCurve.min} kg</span>
+								<span>Máx {weightCurve.max} kg</span>
+							</p>
+						{/if}
+						<ul class="flex flex-col gap-1">
+							{#each weighings as w (w.id)}
+								<li class="flex justify-between">
+									<span>{w.date}</span>
+									<span class="font-extrabold">{w.weight_kg} kg</span>
+								</li>
+							{:else}
+								<li class="text-neutral-600">Sin pesajes.</li>
+							{/each}
+						</ul>
+					</section>
+					<section class="rounded-md border-2 border-black p-4">
+						<h2 class="mb-2 text-lg font-extrabold">Ordeños</h2>
+						<ul class="flex flex-col gap-1">
+							{#each milkings as m (m.id)}
+								<li class="flex justify-between">
+									<span>{m.date} {m.shift}</span>
+									<span class="font-extrabold">{m.liters} L</span>
+								</li>
+							{:else}
+								<li class="text-neutral-600">Sin ordeños.</li>
+							{/each}
+						</ul>
+					</section>
+				</div>
+			</Tabs.Content>
 
-		<section class="rounded-md border-2 border-black p-4">
-			<h2 class="mb-2 text-xl font-extrabold">Pesajes</h2>
-			{#if weightCurve}
-				<svg viewBox="0 0 300 60" class="mb-2 w-full" role="img" aria-label="Curva de peso">
-					<polyline
-						points={weightCurve.path}
-						fill="none"
-						stroke="black"
-						stroke-width="2"
-					/>
-				</svg>
-				<p class="mb-2 flex justify-between text-xs font-bold">
-					<span>Mín {weightCurve.min} kg</span>
-					<span>Máx {weightCurve.max} kg</span>
-				</p>
-			{/if}
-			<ul class="flex flex-col gap-1">
-				{#each weighings as w (w.id)}
-					<li class="flex justify-between"><span>{w.date}</span><span class="font-extrabold">{w.weight_kg} kg</span></li>
-				{:else}
-					<li class="text-neutral-600">Sin pesajes.</li>
-				{/each}
-			</ul>
-		</section>
+			<Tabs.Content value="reproduction">
+				<section class="mt-2 rounded-md border-2 border-black p-4">
+					<h2 class="mb-2 text-lg font-extrabold">Eventos reproductivos</h2>
+					<ul class="flex flex-col gap-1">
+						{#each reproEvents as e (e.id)}
+							<li>
+								<div class="flex justify-between">
+									<span>{e.date}</span>
+									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}</span>
+								</div>
+								{#if e.estimated_calving_date}
+									<p class="ml-4 text-sm">
+										Parto estimado: {e.estimated_calving_date} · Secado: {e.suggested_drying_off_date}
+									</p>
+								{/if}
+							</li>
+						{:else}
+							<li class="text-neutral-600">Sin eventos reproductivos.</li>
+						{/each}
+					</ul>
+				</section>
+			</Tabs.Content>
 
-		<section class="rounded-md border-2 border-black p-4">
-			<h2 class="mb-2 text-xl font-extrabold">Ordeños</h2>
-			<ul class="flex flex-col gap-1">
-				{#each milkings as m (m.id)}
-					<li class="flex justify-between"><span>{m.date} {m.shift}</span><span class="font-extrabold">{m.liters} L</span></li>
-				{:else}
-					<li class="text-neutral-600">Sin ordeños.</li>
-				{/each}
-			</ul>
-		</section>
-
-		<section class="rounded-md border-2 border-black p-4">
-			<h2 class="mb-2 text-xl font-extrabold">Reproducción</h2>
-			<ul class="flex flex-col gap-1">
-				{#each reproEvents as e (e.id)}
-					<li class="flex justify-between">
-						<span>{e.date}</span>
-						<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}</span>
-					</li>
-					{#if e.estimated_calving_date}
-						<li class="ml-4 text-sm">Parto estimado: {e.estimated_calving_date} · Secado: {e.suggested_drying_off_date}</li>
-					{/if}
-				{:else}
-					<li class="text-neutral-600">Sin eventos reproductivos.</li>
-				{/each}
-			</ul>
-		</section>
-
-		<section class="rounded-md border-2 border-black p-4">
-			<h2 class="mb-2 text-xl font-extrabold">Sanidad</h2>
-			<ul class="flex flex-col gap-1">
-				{#each healthEvents as e (e.id)}
-					<li class="flex justify-between">
-						<span>{e.date}</span>
-						<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}: {e.product}</span>
-					</li>
-					{#if e.withdrawal_end_date}
-						<li class="ml-4 text-sm font-bold text-red-700">Retiro hasta: {e.withdrawal_end_date}</li>
-					{/if}
-				{:else}
-					<li class="text-neutral-600">Sin eventos sanitarios.</li>
-				{/each}
-			</ul>
-		</section>
+			<Tabs.Content value="health">
+				<section class="mt-2 rounded-md border-2 border-black p-4">
+					<h2 class="mb-2 text-lg font-extrabold">Eventos sanitarios</h2>
+					<ul class="flex flex-col gap-1">
+						{#each healthEvents as e (e.id)}
+							<li>
+								<div class="flex justify-between">
+									<span>{e.date}</span>
+									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}: {e.product}</span>
+								</div>
+								{#if e.withdrawal_end_date || e.withdrawal_days}
+									<p class="ml-4 text-sm font-bold text-red-700">
+										Retiro hasta: {e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0)}
+									</p>
+								{/if}
+							</li>
+						{:else}
+							<li class="text-neutral-600">Sin eventos sanitarios.</li>
+						{/each}
+					</ul>
+				</section>
+			</Tabs.Content>
+		</Tabs.Root>
 	{/if}
 
 	<button
 		type="button"
-		onclick={() => goto('/')}
+		onclick={() => goto('/herd')}
 		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
 	>
-		Volver
+		Volver al hato
 	</button>
 </div>
