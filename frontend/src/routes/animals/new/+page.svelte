@@ -36,7 +36,7 @@
 	onMount(async () => {
 		const farm = $currentFarm;
 		if (!farm) {
-			await goto('/');
+			await goto('/operations');
 			return;
 		}
 		owners = await db.owners.where('farm').equals(farm.id).toArray();
@@ -89,7 +89,7 @@
 			status: 'active'
 		});
 		saved = true;
-		setTimeout(() => goto('/'), 1000);
+		setTimeout(() => goto('/operations'), 1000);
 	}
 </script>
 
@@ -243,7 +243,7 @@
 
 	<button
 		type="button"
-		onclick={() => goto('/')}
+		onclick={() => goto('/operations')}
 		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
 	>
 		Cancelar

@@ -8,7 +8,7 @@
 	let exporting = $state('');
 
 	onMount(() => {
-		if (!$currentFarm) void goto('/');
+		if (!$currentFarm) void goto('/settings');
 	});
 
 	async function run(key: string, fn: (farmId: string) => Promise<void>) {
@@ -67,7 +67,7 @@
 
 	<button
 		type="button"
-		onclick={() => goto('/')}
+		onclick={() => goto('/settings')}
 		class="mt-4 h-14 w-full rounded-md border-2 border-black font-extrabold"
 	>
 		Volver

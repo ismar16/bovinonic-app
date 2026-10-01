@@ -193,7 +193,7 @@
 
 	<button
 		type="button"
-		onclick={() => goto('/')}
+		onclick={() => goto('/operations')}
 		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
 	>
 		Volver

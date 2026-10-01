@@ -28,7 +28,7 @@
 	onMount(async () => {
 		const farm = $currentFarm;
 		if (!farm || farm.role !== 'admin') {
-			await goto('/');
+			await goto('/settings');
 			return;
 		}
 		try {
@@ -130,7 +130,7 @@
 
 	<button
 		type="button"
-		onclick={() => goto('/')}
+		onclick={() => goto('/settings')}
 		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
 	>
 		Volver
