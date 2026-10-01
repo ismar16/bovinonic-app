@@ -61,12 +61,28 @@
 		activeWithdrawal = active[0] ?? null;
 	});
 
-	const TYPE_LABELS: Record<string, string> = {
-		heat: 'Celo', service: 'Servicio', palpation: 'Palpación',
+	const TYPE_LABELS: Record<string, string> = {heat: 'Celo', service: 'Servicio', palpation: 'Palpación',
 		calving: 'Parto', drying_off: 'Secado', abortion: 'Aborto',
 		vaccine: 'Vacuna', deworming: 'Desparasitación',
 		antibiotic: 'Antibiótico', vitamin: 'Vitamina'
 	};
+
+	let weightCurve = $derived.by(() => {
+		if (weighings.length < 2) return null;
+		const points = [...weighings].reverse();
+		const values = points.map((w) => parseFloat(w.weight_kg));
+		const min = Math.min(...values);
+		const max = Math.max(...values);
+		const span = max - min || 1;
+		const width = 300;
+		const height = 60;
+		const coords = points.map((w, i) => {
+			const x = (i / (points.length - 1)) * width;
+			const y = height - ((parseFloat(w.weight_kg) - min) / span) * height;
+			return `${x.toFixed(1)},${y.toFixed(1)}`;
+		});
+		return { path: coords.join(' '), min, max };
+	});
 </script>
 
 <svelte:head><title>Ficha {animal?.tag ?? ''} · Gestión Ganadera</title></svelte:head>
@@ -135,6 +151,20 @@
 
 		<section class="rounded-md border-2 border-black p-4">
 			<h2 class="mb-2 text-xl font-extrabold">Pesajes</h2>
+			{#if weightCurve}
+				<svg viewBox="0 0 300 60" class="mb-2 w-full" role="img" aria-label="Curva de peso">
+					<polyline
+						points={weightCurve.path}
+						fill="none"
+						stroke="black"
+						stroke-width="2"
+					/>
+				</svg>
+				<p class="mb-2 flex justify-between text-xs font-bold">
+					<span>Mín {weightCurve.min} kg</span>
+					<span>Máx {weightCurve.max} kg</span>
+				</p>
+			{/if}
 			<ul class="flex flex-col gap-1">
 				{#each weighings as w (w.id)}
 					<li class="flex justify-between"><span>{w.date}</span><span class="font-extrabold">{w.weight_kg} kg</span></li>

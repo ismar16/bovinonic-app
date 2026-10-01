@@ -123,6 +123,11 @@
 					class="flex h-14 items-center justify-center rounded-md border-2 border-red-700 text-xl font-extrabold text-red-700"
 					>Retiros activos</a
 				>
+				<a
+					href="/reports"
+					class="flex h-14 items-center justify-center rounded-md border-2 border-black text-xl font-extrabold"
+					>Reportes</a
+				>
 			</nav>
 
 			<input
