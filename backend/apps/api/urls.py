@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views_auth import LoginView, LogoutView, MeView, RefreshView
 from .views_manage import FarmUsersView
-from .views_sync import SyncBatchView, SyncPullView
+from .views_sync import SyncBatchView, SyncPullView, SyncStateView
 
 urlpatterns = [
     path("auth/login", LoginView.as_view()),
@@ -10,6 +10,7 @@ urlpatterns = [
     path("auth/logout", LogoutView.as_view()),
     path("auth/me", MeView.as_view()),
     path("sync/pull", SyncPullView.as_view()),
+    path("sync/state", SyncStateView.as_view()),
     path("sync/batch", SyncBatchView.as_view()),
     path("manage/users", FarmUsersView.as_view()),
 ]

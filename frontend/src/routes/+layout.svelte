@@ -55,7 +55,7 @@
 	<main class="mx-auto w-full px-4 pb-8 {isLogin ? 'max-w-xl' : 'max-w-xl lg:max-w-7xl lg:px-8 lg:pt-4 lg:pb-28'}">
 		{#if $needRefresh}<div class="notice mt-3">Hay una actualización disponible. Guardá tu formulario antes de continuar. <button type="button" disabled={$pendingCount > 0 || $syncing} onclick={() => updateServiceWorker(true)} class="ml-2 underline">Actualizar aplicación</button></div>{/if}
 		{#if isLogin || sessionReady}
-		{#key `${$currentFarm?.id}:${page.params.collection ?? ''}:${page.params.id ?? ''}`}
+		{#key `${$currentFarm?.id}:${$currentFarm?.dataVersion ?? 0}:${page.params.collection ?? ''}:${page.params.id ?? ''}`}
 			{@render children()}
 		{/key}
 		{:else if startupError}<div class="panel mt-8 space-y-4 p-6"><Notice tone="error" message={startupError} /><button type="button" class="action-button" onclick={initialize}>Volver a intentar</button><a href="/login" class="quiet-button ml-2">Iniciar sesión</a></div>{:else}<p class="empty-state mt-8">Abriendo tu finca…</p>{/if}

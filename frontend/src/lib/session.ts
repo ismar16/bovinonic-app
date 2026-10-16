@@ -15,11 +15,13 @@ export interface FarmOption {
 const SESSION_KEY = 'offline_session_v1';
 interface CachedSession { user: User; farmId: string | null; verifiedAt: number; }
 
-function applyUser(user: User, preferred?: string | null): void {
+async function applyUser(user: User, preferred?: string | null): Promise<void> {
 	const farms = user.farms.map((farm) => ({ id: farm.farm, name: farm.farm_name, role: farm.role }));
 	sessionUser.set({ id: user.id, username: user.username });
 	availableFarms.set(farms);
-	currentFarm.set(farms.find((farm) => farm.id === preferred) ?? farms[0] ?? null);
+	const selected = farms.find((farm) => farm.id === preferred) ?? farms[0];
+	const version = selected ? await db.sync_meta.get(`farm_data_version:${selected.id}`) : null;
+	currentFarm.set(selected ? { ...selected, dataVersion: Number(version?.value ?? 0) } : null);
 }
 
 async function cachedSession(): Promise<CachedSession | null> {
@@ -38,7 +40,7 @@ export async function acceptUser(user: User): Promise<void> {
 	}
 	const remembered = cached?.user.id === user.id ? cached.farmId : null;
 	if (remembered && !user.farms.some((farm) => farm.farm === remembered) && await db.outbox.count()) throw new Error('Hay registros pendientes de una finca a la que esta cuenta ya no tiene acceso. Contactá al administrador para recuperar el acceso.');
-	applyUser(user, remembered);
+	await applyUser(user, remembered);
 	await db.sync_meta.put({ key: SESSION_KEY, value: JSON.stringify({ user, farmId: get(currentFarm)?.id ?? null, verifiedAt: Date.now() } satisfies CachedSession) });
 }
 
@@ -49,7 +51,7 @@ export async function restoreSession(): Promise<void> {
 		if (!(cause instanceof TypeError)) throw cause;
 		const cached = await cachedSession();
 		if (!cached || Date.now() - cached.verifiedAt > 14 * 86_400_000) throw new Error('Conectate a internet e iniciá sesión para habilitar los datos de esta finca en el dispositivo.');
-		applyUser(cached.user, cached.farmId);
+		await applyUser(cached.user, cached.farmId);
 	}
 }
 

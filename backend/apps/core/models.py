@@ -15,6 +15,7 @@ class TimeStampedModel(models.Model):
 
 
 class Farm(TimeStampedModel):
+    data_version = models.PositiveIntegerField(default=0, editable=False)
     name = models.CharField(_("nombre"), max_length=150)
     location = models.CharField(_("ubicación"), max_length=255, blank=True)
 

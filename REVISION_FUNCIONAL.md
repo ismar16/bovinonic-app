@@ -48,3 +48,26 @@ La compilación local genera cliente, servidor y service worker. El empaquetado 
 - El registro de un servicio calcula fechas orientativas, no confirma preñez.
 - La edición de eventos históricos de producción, sanidad y reproducción no está incorporada en esta entrega; la edición completa solicitada para catálogos y composición de lotes sí está disponible.
 - El despliegue debe ejecutar la migración `livestock.0004` antes de utilizar lotes. El comando de construcción de Render ya incluye `migrate --noinput`.
+
+## Reinicio autorizado de datos de prueba
+
+El reinicio se prepara con `reset_test_data` en modo de consulta y se ejecuta
+solamente con `--execute`, la finca concreta, el usuario a conservar y los
+conteos esperados. Conserva la contraseña del administrador, vacía los datos
+operativos, elimina los otros usuarios y reemplaza nombre y ubicación de prueba.
+No crea respaldos. El proceso es transaccional y rechaza instalaciones con más
+de una finca o conteos distintos a los revisados.
+
+Cada reinicio incrementa una versión de datos. La sincronización consulta esa
+versión antes de enviar pendientes; al detectar un reinicio, descarta la copia
+local anterior y descarga la finca vacía. Las versiones anteriores de la
+aplicación no pueden subir registros con un marcador antiguo. El servidor
+bloquea reinicio y escrituras concurrentes usando la misma fila de finca.
+Las copias en dispositivos desconectados se limpian cuando vuelven a conectarse
+con la versión actualizada de la aplicación.
+
+Validación adicional: pruebas de simulación, ejecución y cancelación del
+reinicio; bloqueo de clientes antiguos y permisos del estado de sincronización;
+limpieza de pendientes antes de subirlos, conservación de nuevos datos,
+reintentos sin red y rechazo de retrocesos de versión. Resultado: 33 pruebas
+Django y 26 del cliente aprobadas; Svelte/TypeScript sin diagnósticos.

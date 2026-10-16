@@ -2,9 +2,9 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 
 import { errorMessage } from './forms';
-import { ApiError, pull, pushBatch } from './api';
+import { ApiError, pull, pushBatch, syncState } from './api';
 import { db, type OutboxRecord } from './db';
-import { currentFarm, lastSyncResult, online, pendingCount, sessionChanging, syncError, syncing, syncWarnings } from './stores';
+import { availableFarms, currentFarm, lastSyncResult, online, pendingCount, sessionChanging, sessionNotice, syncError, syncing, syncWarnings } from './stores';
 
 const PULL_TABLES = [
 	'owners',
@@ -51,7 +51,7 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
     });
     const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];
     await db.transaction('rw', tables, async () => {
-        if (get(sessionChanging) || get(currentFarm)?.id !== farm.id) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
+        if (get(sessionChanging) || get(currentFarm)?.id !== farm.id || (get(currentFarm)?.dataVersion ?? 0) !== (farm.dataVersion ?? 0)) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
         for (const { collection, payload } of normalized) {
             await db[collection].put(payload as never);
             await db.outbox.add({ collection, record_id: payload.id, payload, created_at: new Date().toISOString() });
@@ -71,6 +71,31 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 	let pushed = 0;
 
 	try {
+		// Check before uploading: clearing only the server would resurrect offline test records.
+		const state = await syncState(farm.id);
+		if (!Number.isSafeInteger(state.data_version) || state.data_version < 0) throw new Error('Marcador de finca inválido.');
+		const versionKey = `farm_data_version:${farm.id}`;
+		const previousVersion = await db.sync_meta.get(versionKey);
+		const localVersion = Number(previousVersion?.value ?? 0);
+		if (!Number.isSafeInteger(localVersion) || localVersion < 0 || state.data_version < localVersion) throw new Error('La versión de los datos cambió de forma inesperada. Contactá al administrador.');
+		const reset = state.data_version > localVersion;
+		await db.transaction('rw', [db.outbox, db.sync_meta, ...PULL_TABLES.map((t) => db[t])], async () => {
+			if (reset) {
+				for (const table of PULL_TABLES) await db[table].clear();
+				await db.outbox.clear();
+				await db.sync_meta.delete(LAST_PULL_KEY);
+			}
+			await db.sync_meta.put({ key: versionKey, value: String(state.data_version) });
+			const cached = await db.sync_meta.get('offline_session_v1');
+			if (cached) {
+				const snapshot = JSON.parse(cached.value);
+				for (const entry of snapshot.user.farms) if (entry.farm === farm.id) entry.farm_name = state.farm_name;
+				await db.sync_meta.put({ key: cached.key, value: JSON.stringify(snapshot) });
+			}
+		});
+		currentFarm.set({ ...farm, name: state.farm_name, dataVersion: state.data_version });
+		availableFarms.set(get(availableFarms).map((entry) => entry.id === farm.id ? { ...entry, name: state.farm_name } : entry));
+		if (reset) sessionNotice.set('La finca se reinició. Se eliminaron de este dispositivo los registros anteriores y sus pendientes. Ya podés ingresar los datos reales.');
 		const pending = await db.outbox.orderBy('id').toArray();
 		for (let start = 0; start < pending.length; start += CHUNK_SIZE) {
 			const chunk = pending.slice(start, start + CHUNK_SIZE);
@@ -79,7 +104,7 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 			for (const entry of latest.values()) {
 				(collections[entry.collection] ??= []).push(entry.payload);
 			}
-			const results = await pushBatch(farm.id, collections);
+			const results = await pushBatch(farm.id, collections, state.data_version);
 			const confirmedIds = new Set<string>();
 			const mergedIds: { collection: string; id: string }[] = [];
 			for (const [collection, entries] of Object.entries(results)) {

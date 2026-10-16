@@ -126,12 +126,18 @@ export async function createFarmUser(
 
 export async function pushBatch(
 	farmId: string,
-	collections: Record<string, Record<string, unknown>[]>
+	collections: Record<string, Record<string, unknown>[]>,
+	dataVersion = 0
 ): Promise<Record<string, BatchResultEntry[]>> {
 	const response = await request('/api/sync/batch', {
 		method: 'POST',
-		body: JSON.stringify({ farm: farmId, ...collections })
+		body: JSON.stringify({ farm: farmId, ...collections, data_version: dataVersion })
 	});
 	const data = await response.json();
 	return data.results;
+}
+
+export async function syncState(farmId: string): Promise<{ data_version: number; farm_name: string }> {
+	const response = await request(`/api/sync/state?${new URLSearchParams({ farm: farmId })}`);
+	return response.json();
 }

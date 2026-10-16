@@ -594,3 +594,24 @@ class AnimalLotSyncTests(TestCase):
         response = self.client.post('/api/manage/users', {'farm': str(self.farm.id), 'username': 'newperson', 'password': 'ClaveCampo2026!A', 'role': 'operator'}, format='json')
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(FarmMembership.objects.filter(user__username='newperson',farm=self.farm,role='operator').exists())
+    def test_reset_blocks_legacy_and_stale_device_uploads(self):
+        self.login('boss')
+        self.farm.data_version = 1
+        self.farm.save()
+        payload = {'farm': str(self.farm.id), 'animals': [{'id': str(uuid.uuid4()), 'tag': 'RESTORED-TEST', 'sex': 'H', 'category': 'calf'}]}
+        for version in [None, 0, '1', True]:
+            if version is not None: payload['data_version'] = version
+            response = self.client.post('/api/sync/batch', payload, format='json')
+            self.assertEqual(response.status_code, 409, response.content)
+        self.assertFalse(Animal.objects.filter(tag='RESTORED-TEST').exists())
+        payload['data_version'] = 1
+        response = self.client.post('/api/sync/batch', payload, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        response = self.client.get('/api/sync/state', {'farm': str(self.farm.id)})
+        self.assertEqual(response.data['data_version'], 1)
+
+    def test_sync_state_requires_membership(self):
+        self.login('boss')
+        other = Farm.objects.create(name='Private farm')
+        response = self.client.get('/api/sync/state', {'farm': str(other.id)})
+        self.assertEqual(response.status_code, 403)

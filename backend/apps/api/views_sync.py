@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.models import FarmMembership
+from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
 from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
 from apps.production.models import Milking, Weighing
@@ -70,6 +70,14 @@ ROLE_RANK = {
     FarmMembership.Role.TECHNICIAN: 2,
     FarmMembership.Role.ADMIN: 3,
 }
+
+
+class SyncStateView(APIView):
+    permission_classes = [HasFarmMembership]
+
+    def get(self, request):
+        farm = request.farm_membership.farm
+        return Response({'data_version': farm.data_version, 'farm_name': farm.name})
 
 
 class SyncPullView(APIView):
@@ -155,6 +163,14 @@ class SyncBatchView(APIView):
 
         try:
             with transaction.atomic():
+                # Serialize reset and uploads so an old device cannot recreate test data.
+                farm = Farm.objects.select_for_update().get(pk=farm_id)
+                version = request.data.get('data_version', 0)
+                if type(version) is not int or version != farm.data_version:
+                    return Response(
+                        {'detail': 'La finca fue reiniciada. Actualizá la aplicación y sincronizá antes de guardar.', 'code': 'farm_reset'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
                 for name, (model, serializer_class, records) in authorized.items():
                     validated_records = []
                     collection_errors = []

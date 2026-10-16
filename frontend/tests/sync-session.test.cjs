@@ -60,6 +60,7 @@ function setup() {
   db.transaction = async (...args) => args.at(-1)();
   const api = {
     ApiError: class extends Error {},
+    syncState: async () => ({ data_version: 0, farm_name: 'A' }),
     pull: async () => ({ sync_cursor: '2026-10-16T00:00:00Z' }),
     pushBatch: async () => ({}), logout: async () => {}
   };
@@ -274,4 +275,54 @@ test('a temporary API failure does not permanently lock out manual or automatic 
   await sync.syncNow();
   assert.equal(retried, true);
   assert.equal(stores.online.value, true);
+});
+
+
+test('server reset clears stale records and pending uploads before any push', async () => {
+  const { sync, db, api, stores } = setup();
+  await sync.enqueue('animals', { id: 'old-test' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v2', value: 'old-cursor' });
+  api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
+  let pushed = false;
+  api.pushBatch = async () => { pushed = true; return {}; };
+  api.pull = async (_farm, since) => { assert.equal(since, undefined); return { animals: [{ id: 'real-cow', farm: 'farm-a' }], sync_cursor: 'new-cursor' }; };
+  await sync.syncNow();
+  assert.equal(pushed, false);
+  assert.equal(await db.outbox.count(), 0);
+  assert.equal(await db.animals.get('old-test'), undefined);
+  assert.ok(await db.animals.get('real-cow'));
+  assert.equal(stores.currentFarm.value.name, 'Finca La Bendición');
+  assert.equal((await db.sync_meta.get('farm_data_version:farm-a')).value, '1');
+});
+
+test('current-version offline records survive sync and include their version on upload', async () => {
+  const { sync, db, api } = setup();
+  await db.sync_meta.put({ key: 'farm_data_version:farm-a', value: '1' });
+  await sync.enqueue('animals', { id: 'real-cow' });
+  api.syncState = async () => ({ data_version: 1, farm_name: 'Real farm' });
+  api.pushBatch = async (_farm, data, version) => { assert.equal(version, 1); assert.equal(data.animals[0].id, 'real-cow'); return { animals: [{ id: 'real-cow', status: 'created' }] }; };
+  await sync.syncNow();
+  assert.equal(await db.outbox.count(), 0);
+  assert.ok(await db.animals.get('real-cow'));
+});
+
+test('an unreachable reset check preserves local data and does not upload', async () => {
+  const { sync, db, api } = setup();
+  await sync.enqueue('animals', { id: 'pending' });
+  api.syncState = async () => { throw new TypeError('offline'); };
+  api.pushBatch = async () => { assert.fail('must not upload without checking reset version'); };
+  await sync.syncNow();
+  assert.equal(await db.outbox.count(), 1);
+  assert.ok(await db.animals.get('pending'));
+});
+
+test('a server version rollback cannot erase current real records', async () => {
+  const { sync, db, api } = setup();
+  await db.sync_meta.put({ key: 'farm_data_version:farm-a', value: '1' });
+  await sync.enqueue('animals', { id: 'real-cow' });
+  api.syncState = async () => ({ data_version: 0, farm_name: 'Old server' });
+  api.pushBatch = async () => { assert.fail('must not upload to an old database version'); };
+  await sync.syncNow();
+  assert.ok(await db.animals.get('real-cow'));
+  assert.equal(await db.outbox.count(), 1);
 });
