@@ -16,10 +16,11 @@
 
 <Sheet.Root bind:open>
 	<Sheet.Trigger
-		class="fixed bottom-20 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
+		class="fixed bottom-20 right-4 z-20 flex h-14 w-14 items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground shadow-lg lg:bottom-6 lg:right-8 lg:w-auto lg:px-5"
 		aria-label="Registro rápido"
 	>
 		<Plus class="h-8 w-8" strokeWidth={2.5} />
+		<span class="hidden text-sm font-bold lg:inline">Registrar</span>
 	</Sheet.Trigger>
 	<Sheet.Content side="bottom" class="mx-auto w-full max-w-xl rounded-t-xl">
 		<Sheet.Header>

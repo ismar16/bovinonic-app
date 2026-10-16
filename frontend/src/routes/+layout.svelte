@@ -8,6 +8,7 @@
 	import QuickActionsFab from '$lib/components/QuickActionsFab.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import { refreshPendingCount, startAutoSync } from '$lib/sync';
+	import { currentFarm } from '$lib/stores';
 
 	let { children } = $props();
 
@@ -27,12 +28,14 @@
 	});
 </script>
 
-<div class="min-h-screen bg-white pb-20 text-black">
+<div class="min-h-screen bg-white pb-20 text-black lg:pb-0 {isLogin ? '' : 'lg:pl-60'}">
 	{#if !isLogin}
 		<TopBar />
 	{/if}
-	<main class="mx-auto w-full max-w-xl px-4 pb-8">
-		{@render children()}
+	<main class="mx-auto w-full px-4 pb-8 {isLogin ? 'max-w-xl' : 'max-w-xl lg:max-w-7xl lg:px-8 lg:pt-4 lg:pb-28'}">
+		{#key $currentFarm?.id}
+			{@render children()}
+		{/key}
 	</main>
 	{#if !isLogin}
 		<BottomNav />

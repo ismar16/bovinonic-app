@@ -78,7 +78,12 @@ export async function me(): Promise<User> {
 	return response.json();
 }
 
-export async function pull(farmId: string, since?: string): Promise<Record<string, unknown[]>> {
+export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'animals' | 'weighings'
+	| 'milkings' | 'reproductive_events' | 'health_events';
+
+export type PullResponse = Partial<Record<PullCollection, unknown[]>> & { sync_cursor?: string };
+
+export async function pull(farmId: string, since?: string): Promise<PullResponse> {
 	const params = new URLSearchParams({ farm: farmId });
 	if (since) params.set('since', since);
 	const response = await request(`/api/sync/pull?${params.toString()}`);

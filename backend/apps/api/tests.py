@@ -1,13 +1,16 @@
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.core.models import Farm, FarmMembership
-from apps.livestock.models import Animal, Owner
+from apps.livestock.models import Animal, Brand, Owner, Paddock
+from apps.health.models import HealthEvent
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
+from .serializers import OwnerSerializer
 
 User = get_user_model()
 
@@ -380,3 +383,100 @@ class SyncApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data["weighings"]), 50)
         self.assertEqual(len(response.data["milkings"]), 50)
+
+    def test_events_reject_animals_from_another_farm(self):
+        self.client.force_authenticate(self.admin_user)
+        other_farm = Farm.objects.create(name="Otra finca")
+        foreign_animal = Animal.objects.create(
+            farm=other_farm, tag="FOREIGN", sex="H", category="cow_lactating"
+        )
+        events = [
+            ("weighings", Weighing, {"weight_kg": "250"}),
+            ("milkings", Milking, {"shift": "AM", "liters": "6"}),
+            ("reproductive_events", ReproductiveEvent, {"type": "heat"}),
+            ("health_events", HealthEvent, {"type": "vaccine", "product": "Vacuna"}),
+        ]
+        for collection, model, fields in events:
+            with self.subTest(collection=collection):
+                response = self.client.post("/api/sync/batch", {
+                    "farm": str(self.farm.id), collection: [{
+                        "id": str(uuid.uuid4()), "animal": str(foreign_animal.id),
+                        "date": "2026-09-28", **fields,
+                    }],
+                }, format="json")
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn("animal", response.data["errors"][collection][0]["error"])
+                self.assertFalse(model.objects.exists())
+
+    def test_animal_and_brand_reject_foreign_farm_relations(self):
+        self.client.force_authenticate(self.admin_user)
+        other = Farm.objects.create(name="Otra finca")
+        owner = Owner.objects.create(farm=other, name="Propietario externo")
+        brand = Brand.objects.create(farm=other, code="EXT")
+        paddock = Paddock.objects.create(farm=other, name="Externo")
+        mother = Animal.objects.create(farm=other, tag="MOTHER", sex="H", category="cow_dry")
+        father = Animal.objects.create(farm=other, tag="FATHER", sex="M", category="bull")
+        for field, related in [("owner", owner), ("brand", brand), ("paddock", paddock),
+                               ("mother", mother), ("father", father)]:
+            with self.subTest(field=field):
+                response = self.client.post("/api/sync/batch", {
+                    "farm": str(self.farm.id), "animals": [{
+                        "id": str(uuid.uuid4()), "tag": "REJECTED", "sex": "H",
+                        "category": "calf", field: str(related.id),
+                    }],
+                }, format="json")
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn(field, response.data["errors"]["animals"][0]["error"])
+        response = self.client.post("/api/sync/batch", {
+            "farm": str(self.farm.id), "brands": [{
+                "id": str(uuid.uuid4()), "code": "REJECTED", "title_owner": str(owner.id),
+            }],
+        }, format="json")
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(Animal.objects.filter(tag="REJECTED").exists())
+        self.assertFalse(Brand.objects.filter(code="REJECTED").exists())
+
+    def test_foreign_event_uuid_cannot_be_overwritten(self):
+        self.client.force_authenticate(self.admin_user)
+        other = Farm.objects.create(name="Otra finca")
+        animal = Animal.objects.create(farm=other, tag="OTHER", sex="H", category="calf")
+        weighing = Weighing.objects.create(animal=animal, date="2026-09-28", weight_kg="200")
+        response = self.client.post("/api/sync/batch", {
+            "farm": str(self.farm.id), "weighings": [{
+                "id": str(weighing.id), "animal": str(self.animal.id),
+                "date": "2026-09-28", "weight_kg": "999",
+            }],
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        weighing.refresh_from_db()
+        self.assertEqual(weighing.animal_id, animal.id)
+        self.assertEqual(float(weighing.weight_kg), 200)
+
+    def test_pull_cursor_preserves_changes_made_during_download(self):
+        self.client.force_authenticate(self.user)
+        original = OwnerSerializer.to_representation
+
+        def serialize_then_update(serializer, instance):
+            data = original(serializer, instance)
+            instance.name = "Modificado durante la descarga"
+            instance.save()
+            return data
+
+        with patch.object(OwnerSerializer, "to_representation", serialize_then_update):
+            first = self.client.get("/api/sync/pull", {"farm": str(self.farm.id)})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.data["owners"][0]["name"], "Juan")
+        second = self.client.get("/api/sync/pull", {
+            "farm": str(self.farm.id), "since": first.data["sync_cursor"],
+        })
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.data["owners"][0]["name"], "Modificado durante la descarga")
+
+    def test_pull_rejects_invalid_or_naive_cursor(self):
+        self.client.force_authenticate(self.user)
+        for cursor in ["invalid", "2026-99-99T00:00:00Z", "2026-09-28T00:00:00"]:
+            with self.subTest(cursor=cursor):
+                response = self.client.get("/api/sync/pull", {
+                    "farm": str(self.farm.id), "since": cursor,
+                })
+                self.assertEqual(response.status_code, 400, response.content)

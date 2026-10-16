@@ -8,7 +8,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import { db, type Animal } from '$lib/db';
 	import { milkTodayTotal } from '$lib/reports';
-	import { availableFarms, currentFarm, online, sessionUser } from '$lib/stores';
+	import { availableFarms, currentFarm, lastSyncResult, online, sessionUser } from '$lib/stores';
 	import { syncNow } from '$lib/sync';
 
 	let animals = $state<Animal[]>([]);
@@ -18,6 +18,10 @@
 	let dryingOffCount = $state(0);
 	let daysOpenCount = $state(0);
 	let withdrawalsCount = $state(0);
+
+	$effect(() => {
+		if (ready && $lastSyncResult) void loadDashboard();
+	});
 
 	onMount(async () => {
 		if (!getFarm()) {
@@ -100,7 +104,7 @@
 {#if ready}
 	<div class="pt-4">
 		{#if $currentFarm}
-			<div class="grid grid-cols-2 gap-3">
+			<div class="grid grid-cols-2 gap-3 xl:grid-cols-4 lg:gap-5">
 				{#each kpis as kpi (kpi.label)}
 					<a href={kpi.href}>
 						<Card.Root

@@ -4,6 +4,8 @@ import { writable } from 'svelte/store';
 export const online = writable(browser ? navigator.onLine : true);
 export const pendingCount = writable(0);
 export const syncing = writable(false);
+export const sessionChanging = writable(false);
+export const sessionNotice = writable<string | null>(null);
 export const lastSyncResult = writable<string | null>(null);
 export const syncError = writable<string | null>(null);
 export const syncWarnings = writable<string[]>([]);

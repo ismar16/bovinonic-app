@@ -112,7 +112,7 @@
 
 		<p class="mb-2 text-sm font-bold text-neutral-600">{filtered.length} animales</p>
 
-		<ul class="flex flex-col gap-2">
+		<ul class="grid grid-cols-1 gap-2 xl:grid-cols-2 lg:gap-4">
 			{#each filtered as animal (animal.id)}
 				<li>
 					<a

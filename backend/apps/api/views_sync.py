@@ -73,11 +73,20 @@ class SyncPullView(APIView):
     permission_classes = [HasFarmMembership]
 
     def get(self, request):
+        sync_cursor = timezone.now().isoformat()
         farm_id = request.farm_membership.farm_id
         since_param = request.query_params.get("since")
         if since_param and " " in since_param:
             since_param = since_param.replace(" ", "+")
-        since = parse_datetime(since_param) if since_param else None
+        try:
+            since = parse_datetime(since_param) if since_param else None
+        except ValueError:
+            since = None
+        if since_param and (since is None or timezone.is_naive(since)):
+            return Response(
+                {"detail": "El marcador de sincronización debe incluir fecha, hora y zona horaria."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         payload = {}
         for name, (model, serializer_class) in PULL_COLLECTIONS.items():
@@ -85,6 +94,7 @@ class SyncPullView(APIView):
             if since:
                 queryset = queryset.filter(updated_at__gt=since)
             payload[name] = serializer_class(queryset, many=True).data
+        payload["sync_cursor"] = sync_cursor
         return Response(payload)
 
 
@@ -152,7 +162,7 @@ class SyncBatchView(APIView):
                         data = {k: v for k, v in record.items() if k != "id"}
                         if model in CATALOG_MODELS:
                             data["farm"] = str(farm_id)
-                        serializer = serializer_class(data=data)
+                        serializer = serializer_class(data=data, context={"farm_id": farm_id})
                         if not serializer.is_valid():
                             collection_errors.append(
                                 {"id": record_id, "error": serializer.errors}
@@ -160,7 +170,7 @@ class SyncBatchView(APIView):
                             continue
                         validated = dict(serializer.validated_data)
                         if model in EVENT_MODELS:
-                            validated["farm_id"] = validated["animal"].farm_id
+                            validated["farm_id"] = farm_id
                         _apply_computed_fields(model, validated)
                         validated_records.append(
                             (str(record_id), validated, record.get("updated_at"))

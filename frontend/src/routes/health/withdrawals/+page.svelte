@@ -98,7 +98,7 @@
 	<button
 		type="button"
 		onclick={() => goto('/health')}
-		class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white"
+		class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white lg:h-11 lg:w-auto lg:self-start lg:px-6 lg:text-sm"
 	>
 		Registrar evento sanitario
 	</button>
@@ -106,7 +106,7 @@
 	<button
 		type="button"
 		onclick={() => goto('/')}
-		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
+		class="h-14 w-full rounded-md border-2 border-black font-extrabold lg:h-11 lg:w-auto lg:self-start lg:px-6 lg:text-sm"
 	>
 		Volver
 	</button>

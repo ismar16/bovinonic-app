@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 
 import { ApiError, pull, pushBatch } from './api';
 import { db, type OutboxRecord } from './db';
-import { currentFarm, lastSyncResult, online, pendingCount, syncError, syncing, syncWarnings } from './stores';
+import { currentFarm, lastSyncResult, online, pendingCount, sessionChanging, syncError, syncing, syncWarnings } from './stores';
 
 const PULL_TABLES = [
 	'owners',
@@ -16,7 +16,8 @@ const PULL_TABLES = [
 	'health_events'
 ] as const;
 
-const LAST_PULL_KEY = 'last_pull_at';
+// Ignore old cursors derived from the device clock; refresh once after upgrading.
+const LAST_PULL_KEY = 'last_pull_server_at_v1';
 const CHUNK_SIZE = 20;
 
 export async function refreshPendingCount(): Promise<void> {
@@ -24,29 +25,12 @@ export async function refreshPendingCount(): Promise<void> {
 	pendingCount.set(await db.outbox.count());
 }
 
-async function dedupeLocalMilkings(): Promise<void> {
-	const all = await db.milkings.toArray();
-	all.sort((a, b) => (a.id < b.id ? -1 : 1));
-	const seen = new Set<string>();
-	const toDelete: string[] = [];
-	for (const m of all) {
-		const key = `${m.animal}|${m.date}|${m.shift}`;
-		if (seen.has(key)) {
-			toDelete.push(m.id);
-		} else {
-			seen.add(key);
-		}
-	}
-	if (toDelete.length > 0) {
-		await db.milkings.bulkDelete(toDelete);
-	}
-}
-
 export async function enqueue(
 	collection: OutboxRecord['collection'],
 	payload: Record<string, unknown> & { id: string }
 ): Promise<void> {
 	await db.transaction('rw', db.outbox, db[collection], async () => {
+		if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
 		await db[collection].put(payload as never);
 		await db.outbox.add({
 			collection,
@@ -60,7 +44,7 @@ export async function enqueue(
 
 export async function syncNow(): Promise<{ pushed: number; warnings: string[] }> {
 	const farm = get(currentFarm);
-	if (!farm || !get(online) || get(syncing)) {
+	if (!farm || !get(online) || get(syncing) || get(sessionChanging)) {
 		return { pushed: 0, warnings: [] };
 	}
 	syncing.set(true);
@@ -72,7 +56,8 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 		for (let start = 0; start < pending.length; start += CHUNK_SIZE) {
 			const chunk = pending.slice(start, start + CHUNK_SIZE);
 			const collections: Record<string, Record<string, unknown>[]> = {};
-			for (const entry of chunk) {
+			const latest = new Map(chunk.map((entry) => [`${entry.collection}:${entry.record_id}`, entry]));
+			for (const entry of latest.values()) {
 				(collections[entry.collection] ??= []).push(entry.payload);
 			}
 			const results = await pushBatch(farm.id, collections);
@@ -96,26 +81,35 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 					}
 				}
 			}
-			await db.outbox
-				.filter((entry) => confirmedIds.has(entry.record_id))
-				.delete();
-			for (const merged of mergedIds) {
-				await db.table(merged.collection).delete(merged.id);
-			}
+			await db.transaction('rw', [db.outbox, ...PULL_TABLES.map((t) => db[t])], async () => {
+				// Only acknowledge the outbox entries actually sent in this request.
+				const acknowledged = chunk.filter((entry) => confirmedIds.has(entry.record_id));
+				await db.outbox.bulkDelete(acknowledged.map((entry) => entry.id!));
+				for (const merged of mergedIds) {
+					const stillPending = await db.outbox.filter((entry) =>
+						entry.collection === merged.collection && entry.record_id === merged.id
+					).count();
+					if (!stillPending) await db.table(merged.collection).delete(merged.id);
+				}
+			});
 			pushed += confirmedIds.size;
 			await refreshPendingCount();
 		}
 
 		const lastPull = await db.sync_meta.get(LAST_PULL_KEY);
 		const data = await pull(farm.id, lastPull?.value);
-		await db.transaction('rw', PULL_TABLES.map((t) => db[t]), async () => {
+		await db.transaction('rw', [db.outbox, db.sync_meta, ...PULL_TABLES.map((t) => db[t])], async () => {
+			const pending = await db.outbox.toArray();
 			for (const table of PULL_TABLES) {
+				const pendingIds = new Set(pending.filter((entry) => entry.collection === table)
+					.map((entry) => entry.record_id));
 				const rows = (data[table] ?? []) as { id: string }[];
-				await db.table(table).bulkPut(rows);
+				await db.table(table).bulkPut(rows.filter((row) => !pendingIds.has(row.id)));
+			}
+			if (data.sync_cursor) {
+				await db.sync_meta.put({ key: LAST_PULL_KEY, value: data.sync_cursor });
 			}
 		});
-		await db.sync_meta.put({ key: LAST_PULL_KEY, value: new Date().toISOString() });
-		await dedupeLocalMilkings();
 
 		lastSyncResult.set(new Date().toISOString());
 		syncError.set(null);

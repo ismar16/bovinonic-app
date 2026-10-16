@@ -15,14 +15,27 @@ class FarmSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "updated_at"]
 
 
-class OwnerSerializer(serializers.ModelSerializer):
+class FarmScopedSerializer(serializers.ModelSerializer):
+    """Limit foreign keys to the farm authorized for the sync request."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        farm_id = self.context.get("farm_id")
+        if farm_id is not None:
+            for name in ("animal", "mother", "father", "paddock", "owner", "brand", "title_owner"):
+                field = self.fields.get(name)
+                if field is not None and field.queryset is not None:
+                    field.queryset = field.queryset.filter(farm_id=farm_id)
+
+
+class OwnerSerializer(FarmScopedSerializer):
     class Meta:
         model = Owner
         fields = ["id", "farm", "name", "id_number", "phone", "updated_at"]
         read_only_fields = ["updated_at"]
 
 
-class BrandSerializer(serializers.ModelSerializer):
+class BrandSerializer(FarmScopedSerializer):
     class Meta:
         model = Brand
         fields = ["id", "farm", "title_owner", "code", "updated_at"]
@@ -38,7 +51,7 @@ class PaddockSerializer(serializers.ModelSerializer):
         validators = []
 
 
-class AnimalSerializer(serializers.ModelSerializer):
+class AnimalSerializer(FarmScopedSerializer):
     class Meta:
         model = Animal
         fields = [
@@ -59,7 +72,7 @@ class AnimalSerializer(serializers.ModelSerializer):
             ]
 
 
-class AnimalEventSerializer(serializers.ModelSerializer):
+class AnimalEventSerializer(FarmScopedSerializer):
     historical_warning = serializers.SerializerMethodField()
 
     def get_historical_warning(self, obj):

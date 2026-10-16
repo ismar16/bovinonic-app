@@ -2,12 +2,15 @@
 	import { LogOut } from 'lucide-svelte';
 
 	import { logoutAndWipe, switchFarm } from '$lib/session';
+	import { syncNow } from '$lib/sync';
 	import {
 		availableFarms,
 		currentFarm,
 		online,
 		pendingCount,
 		sessionUser,
+		sessionChanging,
+		sessionNotice,
 		syncing,
 		syncError,
 		syncWarnings
@@ -31,7 +34,7 @@
 	);
 </script>
 
-<header class="sticky top-0 z-10 flex h-11 items-center justify-between border-b bg-white px-3">
+<header class="sticky top-0 z-10 flex h-11 items-center justify-between border-b bg-white px-3 lg:h-16 lg:px-8">
 	<div class="flex min-w-0 items-center gap-2">
 		<span
 			class="inline-block h-3 w-3 shrink-0 rounded-full {statusColor} {$syncing
@@ -44,9 +47,11 @@
 			<select
 				class="max-w-[60vw] truncate rounded-md border-0 bg-transparent py-1 text-sm font-bold"
 				value={$currentFarm.id}
-				onchange={(e) => {
+				disabled={$sessionChanging}
+				onchange={async (e) => {
+					const select = e.currentTarget;
 					const selected = $availableFarms.find((f) => f.id === e.currentTarget.value);
-					if (selected) void switchFarm(selected);
+					if (selected && !(await switchFarm(selected))) select.value = $currentFarm?.id ?? '';
 				}}
 			>
 				{#each $availableFarms as farm (farm.id)}
@@ -69,6 +74,16 @@
 		</button>
 	{/if}
 </header>
+
+{#if $sessionNotice}
+	<div role="alert" class="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 lg:px-8">
+		{$sessionNotice}
+		{#if $pendingCount > 0}
+			<button type="button" disabled={!$online || $syncing} onclick={() => syncNow()}
+				class="ml-2 underline disabled:opacity-50">Sincronizar ahora</button>
+		{/if}
+	</div>
+{/if}
 
 {#if $syncError}
 	<div class="border-b border-red-700 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">
