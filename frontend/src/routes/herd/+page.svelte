@@ -47,7 +47,7 @@
 <div class="workspace-page space-y-6">
     <header class="flex flex-wrap items-end justify-between gap-4">
         <div><p class="eyebrow">Inventario ganadero</p><h1 class="page-title mt-2">Conocé tu hato.</h1><p class="page-description">Buscá un animal, revisá su historia y mantené sus datos al día.</p></div>
-        <div class="flex flex-wrap gap-2"><a href="/lots" class="quiet-button">Lotes</a>{#if $currentFarm?.role === 'admin'}<a href="/agreements" class="quiet-button">Acuerdos y otras fincas</a>{/if}{#if canEdit}<a href="/animals/bulk" class="quiet-button">Ingreso de varios</a>{/if}<button type="button" class="quiet-button" onclick={() => $currentFarm && exportAnimalsCsv($currentFarm.id)}><Download class="h-4 w-4" /> Exportar hato</button>{#if canEdit}<a href="/animals/new" class="action-button"><Plus class="h-4 w-4" /> Nuevo animal</a>{/if}</div>
+        <div class="flex flex-wrap gap-2"><a href="/lots" class="quiet-button">Lotes</a>{#if $currentFarm?.role === 'admin'}<a href="/sales" class="quiet-button">Ventas y cobros</a><a href="/agreements" class="quiet-button">Acuerdos y otras fincas</a>{/if}{#if canEdit}<a href="/animals/bulk" class="quiet-button">Ingreso de varios</a>{/if}<button type="button" class="quiet-button" onclick={() => $currentFarm && exportAnimalsCsv($currentFarm.id)}><Download class="h-4 w-4" /> Exportar hato</button>{#if canEdit}<a href="/animals/new" class="action-button"><Plus class="h-4 w-4" /> Nuevo animal</a>{/if}</div>
     </header>
     <div class="grid grid-cols-3 gap-3">
         {#each [{ label: 'Animales activos', value: active }, { label: 'Vacas en ordeño', value: lactating }, { label: 'Cambios por enviar', value: pending.length }] as stat}

@@ -22,7 +22,7 @@
 		if (signature !== lastFinancialSignature) { draft.accept_loss = false; lastFinancialSignature = signature; }
 	});
 	const canEdit = $derived($currentFarm?.role === 'admin');
-	const locked = $derived(draft.status === 'settled');
+	const locked = $derived(draft.status === 'settled' || !!draft.sale_receipts?.length);
 	const unavailable = $derived(new Set(others.filter((a) => a.id !== draft.id && a.status === 'active').flatMap((a) => a.animals.map((r) => r.animal))));
 	const choices = $derived(animals.filter((a) => a.status === 'active' && !unavailable.has(a.id) && !draft.animals.some((r) => r.animal === a.id) && `${a.tag} ${a.name}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a,b) => a.tag.localeCompare(b.tag,'es',{numeric:true})).slice(0,20));
 	const preview = $derived.by(() => {
@@ -79,7 +79,7 @@
 	<Notice tone="error" message={error} />
 	{#if !canEdit}<Notice tone="warning" message="Los acuerdos y sus liquidaciones requieren el rol de administrador." />
 	{:else if loading}<p class="empty-state">Cargando datos del hato…</p>
-	{:else if locked}<Notice message="Este acuerdo ya fue liquidado. Se conserva como historial y no se puede editar." /><a class="quiet-button" href="/agreements/{draft.id}">Ver liquidación</a>
+	{:else if locked}<Notice message="Este acuerdo tiene liquidación o ventas confirmadas. Sus condiciones y gastos originales se conservan como historial. Agregá gastos posteriores en la siguiente venta." /><a class="quiet-button" href="/agreements/{draft.id}">Ver acuerdo y liquidaciones</a><a class="action-button" href="/sales/new">Registrar venta</a>
 	{:else if draft.id}
 	<form onsubmit={save} class="space-y-6">
 		<fieldset disabled={saving || saved} class="space-y-6">

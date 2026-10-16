@@ -78,7 +78,7 @@ export async function me(): Promise<User> {
 	return response.json();
 }
 
-export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'lots' | 'animals' | 'agreements' | 'weighings'
+export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'lots' | 'animals' | 'agreements' | 'sales' | 'sale_payments' | 'weighings'
 	| 'milkings' | 'reproductive_events' | 'health_events';
 
 export type PullResponse = Partial<Record<PullCollection, unknown[]>> & { sync_cursor?: string };
@@ -139,5 +139,11 @@ export async function pushBatch(
 
 export async function syncState(farmId: string): Promise<{ data_version: number; farm_name: string }> {
 	const response = await request(`/api/sync/state?${new URLSearchParams({ farm: farmId })}`);
+	return response.json();
+}
+
+export async function financialReceipt(farmId: string, collection: 'sales' | 'sale_payments', id: string): Promise<{ record: Record<string, unknown> | null }> {
+	const params = new URLSearchParams({ farm: farmId, collection, id });
+	const response = await request(`/api/sales/receipt?${params}`);
 	return response.json();
 }

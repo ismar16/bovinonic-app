@@ -203,3 +203,29 @@ class AnimalAgreement(TimeStampedModel):
 
     def __str__(self):
         return self.title
+
+
+class AnimalSale(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='animal_sales')
+    date = models.DateField()
+    buyer = models.CharField(max_length=150)
+    buyer_phone = models.CharField(max_length=30, blank=True)
+    currency = models.CharField(max_length=3, choices=[('NIO', 'Córdobas'), ('USD', 'Dólares')])
+    notes = models.CharField(max_length=2000, blank=True)
+    lines = models.JSONField(default=list)
+    total = models.DecimalField(max_digits=18, decimal_places=2, editable=False)
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at'])]
+
+
+class SalePayment(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='sale_payments')
+    sale = models.ForeignKey(AnimalSale, on_delete=models.CASCADE, related_name='payments')
+    date = models.DateField()
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    method = models.CharField(max_length=20, choices=[('cash', 'Efectivo'), ('transfer', 'Transferencia'), ('other', 'Otro')])
+    reference = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at'])]

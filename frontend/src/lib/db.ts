@@ -103,6 +103,8 @@ export interface OutboxRecord {
 		| 'paddocks'
 		| 'lots'
 		| 'agreements'
+		| 'sales'
+		| 'sale_payments'
 		| 'weighings'
 		| 'milkings'
 		| 'reproductive_events'
@@ -147,9 +149,29 @@ export interface AnimalAgreement {
 	start_date: string; end_date: string | null; status: 'active' | 'settled'; notes: string;
 	animals: AgreementAnimal[]; expenses: AgreementExpense[]; settlement?: AgreementSettlement | null;
 	accept_loss?: boolean; updated_at?: string;
+	sale_receipts?: { sale: string; date: string; animals: string[] }[];
+}
+
+export interface SaleLine {
+	animal: string; tag: string; name?: string; weight_kg: string; price_per_kg: string;
+	agreement: string | null; agreement_version: string | null;
+	expenses: { concept: string; amount: string; paid_by: 'owner' | 'partner' }[];
+	value?: string; settlement?: AgreementSettlement | null;
+	allocated_expenses?: AgreementExpense[]; agreement_title?: string; partner_name?: string;
+	owner_name?: string; kind?: string | null; initial_weight?: string | null; owner_share?: string;
+}
+export interface AnimalSale {
+	id: string; farm: string; date: string; buyer: string; buyer_phone: string; currency: 'NIO' | 'USD';
+	notes: string; lines: SaleLine[]; total?: string; updated_at?: string; accept_loss?: boolean;
+}
+export interface SalePayment {
+	id: string; farm: string; sale: string; date: string; amount: string;
+	method: 'cash' | 'transfer' | 'other'; reference: string; updated_at?: string;
 }
 
 class GanaderiaDB extends Dexie {
+	sales!: EntityTable<AnimalSale, 'id'>;
+	sale_payments!: EntityTable<SalePayment, 'id'>;
 	agreements!: EntityTable<AnimalAgreement, 'id'>;
 	lots!: EntityTable<AnimalLot, 'id'>;
 	farms!: EntityTable<Farm, 'id'>;
@@ -184,6 +206,7 @@ class GanaderiaDB extends Dexie {
 			animals: 'id, farm, tag, status, lot, updated_at'
 		});
 		this.version(3).stores({ agreements: 'id, farm, status, start_date, updated_at' });
+		this.version(4).stores({ sales: 'id, farm, date, updated_at', sale_payments: 'id, farm, sale, date, updated_at' });
 	}
 }
 

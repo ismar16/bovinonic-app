@@ -8,7 +8,7 @@ from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, Brand, Owner, Paddock
 from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
@@ -67,12 +67,18 @@ class AnimalLotSerializer(FarmScopedSerializer):
 
 class AnimalAgreementSerializer(FarmScopedSerializer):
     owner_share = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0, max_value=100, required=False, default=50)
+    sale_receipts = serializers.SerializerMethodField()
+
+    def get_sale_receipts(self, obj):
+        return [{'sale': str(s.id), 'date': s.date.isoformat(), 'animals': [r['animal'] for r in s.lines if r.get('agreement') == str(obj.id)]}
+                for s in AnimalSale.objects.filter(farm_id=obj.farm_id).order_by('date', 'id')
+                if any(r.get('agreement') == str(obj.id) for r in s.lines)]
 
     class Meta:
         model = AnimalAgreement
         fields = ['id', 'farm', 'title', 'owner_name', 'partner_name', 'external_farm', 'kind',
                   'currency', 'owner_share', 'start_date', 'end_date', 'status', 'notes',
-                  'animals', 'expenses', 'settlement', 'updated_at']
+                  'animals', 'expenses', 'settlement', 'updated_at', 'sale_receipts']
         read_only_fields = ['settlement', 'updated_at']
 
     def validate(self, attrs):
@@ -89,6 +95,11 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
             record_id = str(UUID(str(self.context['record_id']))) if self.context.get('record_id') else None
             farm_id = self.context.get('farm_id') or attrs['farm'].pk
             existing = AnimalAgreement.objects.filter(pk=record_id, farm_id=farm_id).first() if record_id else None
+            if existing and self.get_sale_receipts(existing):
+                for field, value in attrs.items():
+                    if getattr(existing, field) != value:
+                        raise ValueError('Este acuerdo tiene ventas: sus condiciones y gastos originales quedan protegidos. Registrá nuevos gastos en la siguiente venta.')
+                return {**attrs, 'settlement': existing.settlement}
             start = attrs['start_date']
             end = attrs.get('end_date')
             kind = attrs.get('kind', 'weight_gain')
@@ -182,6 +193,10 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
 
 class AnimalSerializer(FarmScopedSerializer):
     def validate(self, attrs):
+        record_id = str(self.context.get('record_id', ''))
+        sold = any(r['animal'] == record_id for s in AnimalSale.objects.filter(farm_id=self.context.get('farm_id')) for r in s.lines)
+        if sold and (attrs.get('status') != 'sold' or attrs.get('status_changed_at') != Animal.objects.get(pk=record_id).status_changed_at):
+            raise serializers.ValidationError('Este animal tiene una venta confirmada y no puede volver al hato activo ni cambiar su fecha de venta.')
         birth = attrs.get('birth_date')
         if birth and birth > timezone.localdate():
             raise serializers.ValidationError({'birth_date': 'El nacimiento no puede ser futuro.'})
@@ -289,3 +304,52 @@ class FarmMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = FarmMembership
         fields = ["id", "farm", "farm_name", "role"]
+
+
+class AnimalSaleSerializer(FarmScopedSerializer):
+    class Meta:
+        model = AnimalSale
+        fields = ['id', 'farm', 'date', 'buyer', 'buyer_phone', 'currency', 'notes', 'lines', 'total', 'updated_at']
+        read_only_fields = ['total', 'updated_at']
+
+    def validate(self, attrs):
+        from apps.livestock.sales import normalize_sale
+        try:
+            record_id = UUID(str(self.context['record_id']))
+            existing = AnimalSale.objects.filter(pk=record_id).first()
+            if existing and existing.farm_id != self.context['farm_id']:
+                raise ValueError('La venta pertenece a otra finca.')
+            for field in ['buyer_phone', 'notes']:
+                attrs.setdefault(field, '')
+            return normalize_sale(attrs, self.context['farm_id'], existing, self.initial_data.get('accept_loss'))
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise serializers.ValidationError({'sale': str(exc) or 'Revisá los datos de la venta.'})
+
+
+class SalePaymentSerializer(FarmScopedSerializer):
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2, min_value=Decimal('.01'))
+
+    class Meta:
+        model = SalePayment
+        fields = ['id', 'farm', 'sale', 'date', 'amount', 'method', 'reference', 'updated_at']
+        read_only_fields = ['updated_at']
+
+    def validate(self, attrs):
+        sale = attrs['sale']
+        if sale.farm_id != self.context['farm_id']:
+            raise serializers.ValidationError('La venta pertenece a otra finca.')
+        if not sale.date <= attrs['date'] <= timezone.localdate():
+            raise serializers.ValidationError('La fecha del abono debe estar entre la venta y hoy.')
+        attrs.setdefault('reference', '')
+        try:
+            existing = SalePayment.objects.filter(pk=UUID(str(self.context['record_id']))).first()
+        except ValueError:
+            raise serializers.ValidationError('El identificador del abono no es válido.')
+        if existing:
+            if any(getattr(existing, k) != v for k, v in attrs.items()):
+                raise serializers.ValidationError('Un abono confirmado no se puede modificar.')
+        else:
+            paid = sum((p.amount for p in sale.payments.all()), Decimal(0))
+            if paid + attrs['amount'] > sale.total:
+                raise serializers.ValidationError('El abono supera el saldo pendiente de esta venta.')
+        return attrs

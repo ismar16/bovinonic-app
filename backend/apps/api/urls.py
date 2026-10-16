@@ -3,6 +3,7 @@ from django.urls import path
 from .views_auth import LoginView, LogoutView, MeView, RefreshView
 from .views_manage import FarmUsersView
 from .views_sync import SyncBatchView, SyncPullView, SyncStateView
+from .views_sales import FinancialReceiptView
 
 urlpatterns = [
     path("auth/login", LoginView.as_view()),
@@ -13,4 +14,5 @@ urlpatterns = [
     path("sync/state", SyncStateView.as_view()),
     path("sync/batch", SyncBatchView.as_view()),
     path("manage/users", FarmUsersView.as_view()),
+    path('sales/receipt', FinancialReceiptView.as_view()),
 ]

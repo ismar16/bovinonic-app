@@ -7,7 +7,7 @@ export const agreementKinds = {
 	offspring: 'A medias · Crías (valor de venta)', pasture: 'Pasto alquilado'
 };
 
-function units(value: string | null, minimum = 0n, maximum = 99999999999n): bigint {
+export function units(value: string | null, minimum = 0n, maximum = 99999999999n): bigint {
 	const normalized = (value ?? '').trim().replace(',', '.');
 	if (!/^\d+(\.\d{1,2})?$/.test(normalized)) throw new Error('Completá las cantidades con hasta dos decimales.');
 	const [whole, fraction = ''] = normalized.split('.');
@@ -15,10 +15,10 @@ function units(value: string | null, minimum = 0n, maximum = 99999999999n): bigi
 	if (result < minimum || result > maximum) throw new Error('La cantidad está fuera del rango permitido.');
 	return result;
 }
-function rounded(value: bigint, divisor: bigint): bigint {
+export function rounded(value: bigint, divisor: bigint): bigint {
 	return value < 0n ? -rounded(-value, divisor) : (value + divisor / 2n) / divisor;
 }
-function decimal(value: bigint): string {
+export function decimal(value: bigint): string {
 	const absolute = value < 0n ? -value : value;
 	return `${value < 0n ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`;
 }

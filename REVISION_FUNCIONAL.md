@@ -134,3 +134,20 @@ Comprobado en navegador con una finca DEMO y SQLite en memoria:
 
 Estas pruebas no introdujeron registros ficticios en producción. Validación:
 41 pruebas Django, 35 del cliente y comprobación Svelte/TypeScript.
+
+
+## Ventas y cobros — 16/10/2026
+
+Implementado el plan de PLAN_VENTAS.md. Ventas de uno o varios animales con comprador, fecha, moneda, kg, precio individual y gastos adicionales; comprobantes CSV, historial y filtros por saldo. Abonos append-only con control de saldo y recuperación de pendientes consultando el recibo autoritativo. El estado Vendido se registra desde Ventas y se protege de reactivaciones cuando existe comprobante confirmado.
+
+Acuerdos: liquidación por animal con gastos específicos y reparto igualitario de gastos comunes, asignando centavos de forma estable. Se protegen condiciones y gastos originales desde la primera venta; los gastos posteriores se cargan en la siguiente venta. El último animal cierra el acuerdo y sus totales suman los recibos individuales. Las actualizaciones parciales cambian updated_at para su descarga incremental. Las ventas no registran pagos entre las partes: los abonos son cobros al comprador.
+
+Verificación:
+- Backend: 54 pruebas correctas, incluidas ventas duplicadas, atomicidad y rollback del inventario, ventas parciales, gastos/pérdidas, reintentos, permisos, recuperación de recibos y cobros sin exceder el saldo. Migraciones sin cambios pendientes.
+- Frontend: 41 pruebas correctas; cálculos coincidentes con servidor, asignación de centavos, restricciones de ventas, conservación de pendientes, corrección sin duplicar registros y recuperación de respuestas perdidas.
+- Svelte/TypeScript: 0 errores y 0 advertencias.
+- Navegador con API SQLite en memoria: primera venta 280 kg × C$100 = C$28,000, gasto común asignado C$500.01, propietario C$23,250.01 y responsable C$4,749.99; segundo animal 300 kg × C$100 = C$30,000, gasto C$500.00. Acuerdo final C$58,000, gastos C$1,000.01, propietario C$47,500.01 y responsable C$10,499.99. Abono C$10,000 confirmado y saldo C$18,000 en la primera venta.
+- Formulario y detalle revisados a 320 px, sin desbordamiento horizontal; revisión visual de escritorio a 1280 px.
+- Datos exclusivamente ficticios en API de prueba aislada. No se modificó la base de producción ni se desplegó esta entrega.
+
+Límites de esta entrega: ventas por kg, sin facturación fiscal, conversión monetaria ni anulaciones de ventas o abonos confirmados. El historial previo marcado como vendido se conserva sin inventar importes retroactivos. Ver PLAN_VENTAS.md para alcance y recorrido.

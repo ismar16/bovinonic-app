@@ -54,12 +54,12 @@
 	{#each items as item (item.href)}
 		{@const active = item.href === '/' ? path === '/' : item.href === '/herd'
 			? path.startsWith('/herd') || path.startsWith('/animals/') || path.startsWith('/lots') || path.startsWith('/agreements')
-			: item.href === '/operations' ? ['/operations', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
+			: item.href === '/operations' ? ['/operations', '/sales', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
 			: path.startsWith(item.href)}
 		<a
 			href={item.href}
 			class="relative flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold lg:min-h-12 lg:flex-row lg:justify-start lg:gap-3 lg:rounded-lg lg:px-3 lg:text-sm {active
-				? path.startsWith('/agreements') && item.href === '/herd' ? 'text-primary lg:text-white/60' : 'text-primary lg:bg-white/10 lg:text-white'
+				? ((path.startsWith('/agreements') && item.href === '/herd') || (path.startsWith('/sales') && item.href === '/operations')) ? 'text-primary lg:text-white/60' : 'text-primary lg:bg-white/10 lg:text-white'
 				: 'text-neutral-500 lg:text-white/60 lg:hover:bg-white/5 lg:hover:text-white'}"
 			aria-current={active ? 'page' : undefined}
 		>
@@ -75,6 +75,7 @@
 		</a>
 	{/each}
 	<a href="/lots" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold text-white/60 hover:bg-white/5 lg:flex"><Beef class="h-6 w-6" /> Lotes de animales</a>
+	{#if $currentFarm?.role === 'admin'}<a href="/sales" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/sales') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}"><Beef class="h-6 w-6" /> Ventas y cobros</a>{/if}
 	{#if $currentFarm?.role === 'admin'}<a href="/agreements" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/agreements') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}"><Handshake class="h-6 w-6" /> Acuerdos y estadías</a>{/if}
 	<a href="/reports" aria-current={path.startsWith('/reports') ? 'page' : undefined}
 		class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/reports') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}">

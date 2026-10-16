@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, Brand, Owner, Paddock
+from apps.livestock.sales import apply_sale
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
@@ -22,6 +23,8 @@ from .serializers import (
     AnimalSerializer,
     AnimalLotSerializer,
     AnimalAgreementSerializer,
+    AnimalSaleSerializer,
+    SalePaymentSerializer,
     BrandSerializer,
     HealthEventSerializer,
     MilkingSerializer,
@@ -42,6 +45,8 @@ PULL_COLLECTIONS = {
     "milkings": (Milking, MilkingSerializer),
     "reproductive_events": (ReproductiveEvent, ReproductiveEventSerializer),
     "health_events": (HealthEvent, HealthEventSerializer),
+    'sales': (AnimalSale, AnimalSaleSerializer),
+    'sale_payments': (SalePayment, SalePaymentSerializer),
 }
 
 WRITE_COLLECTIONS = {
@@ -63,6 +68,8 @@ WRITE_COLLECTIONS = {
         HealthEventSerializer,
         FarmMembership.Role.TECHNICIAN,
     ),
+    'sales': (AnimalSale, AnimalSaleSerializer, FarmMembership.Role.ADMIN),
+    'sale_payments': (SalePayment, SalePaymentSerializer, FarmMembership.Role.ADMIN),
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
@@ -104,7 +111,7 @@ class SyncPullView(APIView):
 
         payload = {}
         for name, (model, serializer_class) in PULL_COLLECTIONS.items():
-            if name == 'agreements' and request.farm_membership.role != FarmMembership.Role.ADMIN:
+            if name in ('agreements', 'sales', 'sale_payments') and request.farm_membership.role != FarmMembership.Role.ADMIN:
                 payload[name] = []
                 continue
             queryset = model.objects.filter(farm_id=farm_id)
@@ -178,6 +185,26 @@ class SyncBatchView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
                 for name, (model, serializer_class, records) in authorized.items():
+                    if model in (AnimalSale, SalePayment):
+                        entries = []
+                        for record in records:
+                            record_id = record.get('id')
+                            data = {k: v for k, v in record.items() if k != 'id'}
+                            data['farm'] = str(farm_id)
+                            serializer = serializer_class(data=data, context={'farm_id': farm_id, 'record_id': record_id})
+                            if not serializer.is_valid():
+                                errors[name] = [{'id': record_id, 'error': serializer.errors}]
+                                raise ValueError('Revisá los datos de venta o cobro.')
+                            existing = model.objects.filter(pk=record_id).first()
+                            if existing:
+                                entries.append({'id': str(record_id), 'status': 'updated'})
+                            else:
+                                obj = model.objects.create(id=record_id, **serializer.validated_data)
+                                if model is AnimalSale:
+                                    apply_sale(obj)
+                                entries.append({'id': str(record_id), 'status': 'created'})
+                        results[name] = entries
+                        continue
                     validated_records = []
                     collection_errors = []
                     for record in records:

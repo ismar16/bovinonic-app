@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'weighings', 'milkings',
+  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'weighings', 'milkings',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v3', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v4', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v3')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v4')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -283,7 +283,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v3', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v4', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -466,4 +466,64 @@ test('agreement writes require administrator and survive ordinary sync', async (
   api.pushBatch = async (_farm, data) => { assert.equal(data.agreements[0].farm, 'farm-a'); return { agreements: [{ id: 'agreement', status: 'created' }] }; };
   api.pull = async () => ({ agreements: [{ ...draftAgreement(), title: 'Server validated' }] });
   await sync.syncNow(); assert.equal(await db.outbox.count(), 0); assert.equal((await db.agreements.get('agreement')).title, 'Server validated');
+});
+
+const saleHelpers = () => load('sales', { './agreements': agreementHelpers(), './forms': load('forms', {}), './dates': load('dates', {}) });
+function draftSale() {
+  return { id:'sale', farm:'farm-a', buyer:' Buyer ', buyer_phone:'', currency:'NIO', date:'2026-10-01', notes:'', lines:[{ animal:'cow', tag:'NI-1', weight_kg:'280', price_per_kg:'100', agreement:null, agreement_version:null, expenses:[] }] };
+}
+
+test('sale preview normalizes decimals and agrees with the server settlement including partial cents', () => {
+  const {validateSale,allocatedExpenses}=saleHelpers(); const agreement=draftAgreement(); agreement.updated_at='2026-10-01T00:00:00Z';
+  agreement.animals.push({...agreement.animals[0],animal:'cow-2',tag:'NI-2'}); agreement.expenses[0].amount='1000.01';
+  const draft=draftSale(); draft.lines[0].weight_kg='280,00'; const result=validateSale(draft,[agreement]);
+  assert.equal(result.total,'28000.00'); assert.equal(result.lines[0].settlement.expenses,'500.01');
+  assert.equal(result.lines[0].settlement.owner_total,'23250.01'); assert.equal(result.lines[0].settlement.partner_total,'4749.99');
+  assert.equal(allocatedExpenses(agreement,'cow-2')[0].amount,'500.00'); assert.equal(draft.lines[0].weight_kg,'280,00');
+  assert.equal(result.lines[0].agreement_version,agreement.updated_at);
+});
+
+test('sales reject missing weights, duplicates, wrong currency and unconfirmed losses', () => {
+  const {validateSale}=saleHelpers(); let draft=draftSale(); draft.lines[0].weight_kg=''; assert.throws(()=>validateSale(draft,[]));
+  draft=draftSale(); draft.lines.push({...draft.lines[0]}); assert.throws(()=>validateSale(draft,[]),/repetir/);
+  const agreement=draftAgreement(); agreement.updated_at='2026-10-01T00:00:00Z'; draft=draftSale(); draft.currency='USD'; assert.throws(()=>validateSale(draft,[agreement]),/moneda/);
+  draft=draftSale(); draft.lines[0].weight_kg='170'; assert.throws(()=>validateSale(draft,[agreement]),/pérdidas/);
+  draft.accept_loss=true; assert.equal(validateSale(draft,[agreement]).lines[0].settlement.net_gain,'-2000.00');
+  draft.accept_loss='true'; assert.throws(()=>validateSale(draft,[agreement]),/pérdidas/);
+});
+
+test('sale costs belong to one animal and do not mutate original agreement expenses', () => {
+  const {validateSale}=saleHelpers(); const agreement=draftAgreement(); agreement.updated_at='2026-10-01T00:00:00Z';
+  const draft=draftSale(); draft.lines[0].expenses=[{concept:'Transport',amount:'500',paid_by:'partner'}];
+  const result=validateSale(draft,[agreement]); assert.equal(result.lines[0].settlement.expenses,'1500.00');
+  assert.equal(result.lines[0].settlement.partner_total,'4750.00'); assert.equal(agreement.expenses.length,1);
+  assert.throws(()=>validateSale(draft,[]),/pagador/);
+});
+
+test('sale and payment financial records require admin and sync without losing receipt', async () => {
+  const {sync,db,stores,api}=setup(); stores.currentFarm.set({id:'farm-a',role:'technician'});
+  await assert.rejects(sync.enqueue('sales',draftSale()),/rol/); await assert.rejects(sync.enqueue('sale_payments',{id:'payment'}),/rol/);
+  stores.currentFarm.set({id:'farm-a',role:'admin'}); await sync.enqueue('sales',draftSale());
+  api.pushBatch=async(_farm,data)=>{assert.equal(data.sales[0].farm,'farm-a');return {sales:[{id:'sale',status:'created'}]};};
+  api.pull=async()=>({sales:[{...draftSale(),total:'28000.00'}],animals:[{id:'cow',status:'sold'}]});
+  await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal((await db.sales.get('sale')).total,'28000.00');assert.equal((await db.animals.get('cow')).status,'sold');
+});
+
+test('correcting a financial pending replaces earlier queue entries instead of accepting an older chunk', async () => {
+  const {sync,db,stores}=setup();await sync.enqueue('sales',draftSale());
+  for(let i=0;i<25;i++)await sync.enqueue('weighings',{id:`w-${i}`});
+  await sync.enqueue('sales',{...draftSale(),buyer:'Corrected'});
+  assert.equal((await db.outbox.toArray()).filter((r)=>r.collection==='sales').length,1);
+  stores.syncing.set(true);await assert.rejects(sync.enqueue('sales',{...draftSale(),buyer:'Inflight'}),/termine/);
+  assert.equal((await db.sales.get('sale')).buyer,'Corrected');
+});
+
+test('a lost financial response is reconciled from the server before editing and never erases another pending', async () => {
+  const {sync,db,api}=setup();await sync.enqueue('sales',draftSale());await sync.enqueue('animals',{id:'other'});
+  api.financialReceipt=async()=>({record:{...draftSale(),total:'28000.00',buyer:'Authoritative'}});
+  assert.equal(await sync.reviewFinancialPending('sales','sale'),true);
+  assert.equal((await db.sales.get('sale')).buyer,'Authoritative');assert.equal(await db.outbox.count(),1);
+  assert.equal((await db.outbox.toArray())[0].record_id,'other');
+  await sync.enqueue('sale_payments',{id:'payment'});api.financialReceipt=async()=>({record:null});
+  assert.equal(await sync.reviewFinancialPending('sale_payments','payment'),false);assert.equal(await db.outbox.count(),2);
 });

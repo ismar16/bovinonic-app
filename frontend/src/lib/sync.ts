@@ -2,7 +2,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 
 import { errorMessage } from './forms';
-import { ApiError, pull, pushBatch, syncState } from './api';
+import { ApiError, pull, pushBatch, syncState, financialReceipt } from './api';
 import { db, type OutboxRecord } from './db';
 import { availableFarms, currentFarm, lastSyncResult, online, pendingCount, sessionChanging, sessionNotice, syncError, syncing, syncWarnings } from './stores';
 
@@ -16,11 +16,13 @@ const PULL_TABLES = [
 	'weighings',
 	'milkings',
 	'reproductive_events',
-	'health_events'
+	'health_events',
+	'sales',
+	'sale_payments'
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v3';
+const LAST_PULL_KEY = 'last_pull_server_at_v4';
 const CHUNK_SIZE = 20;
 const SAVE_SYNC_DELAY_MS = 1500;
 const savedListeners = new Set<() => void>();
@@ -28,6 +30,25 @@ const savedListeners = new Set<() => void>();
 export async function refreshPendingCount(): Promise<void> {
 	if (!browser) return;
 	pendingCount.set(await db.outbox.count());
+}
+
+/** Resolve a lost response before correcting a pending immutable financial record. */
+export async function reviewFinancialPending(collection: 'sales' | 'sale_payments', id: string): Promise<boolean> {
+	const farm = get(currentFarm);
+	if (!farm || farm.role !== 'admin') throw new Error('Esta acción requiere un administrador.');
+	if (get(syncing) || get(sessionChanging)) throw new Error('Esperá a que termine la sincronización y volvé a revisar.');
+	sessionChanging.set(true);
+	try {
+		const response = await financialReceipt(farm.id, collection, id);
+		if (!response.record) return false;
+		await db.transaction('rw', [db.outbox, db[collection]], async () => {
+			const pending = (await db.outbox.toArray()).filter((r) => r.collection === collection && r.record_id === id);
+			await db[collection].put(response.record as never);
+			await db.outbox.bulkDelete(pending.map((r) => r.id!));
+		});
+		await refreshPendingCount();
+		return true;
+	} finally { sessionChanging.set(false); }
 }
 
 export interface PendingWrite {
@@ -46,16 +67,21 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
     if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
     const rank: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
     const normalized = records.map(({ collection, payload }) => {
-        const minimum = ['owners','brands','paddocks','agreements'].includes(collection) ? 3
+        const minimum = ['owners','brands','paddocks','agreements','sales','sale_payments'].includes(collection) ? 3
             : ['animals','lots','reproductive_events','health_events'].includes(collection) ? 2 : 1;
         if ((rank[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
-        const catalog = ['animals','lots','owners','brands','paddocks','agreements'].includes(collection);
+        const catalog = ['animals','lots','owners','brands','paddocks','agreements','sales','sale_payments'].includes(collection);
         return { collection, payload: catalog ? { ...payload, farm: farm.id } : payload };
     });
     const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];
     await db.transaction('rw', tables, async () => {
         if (get(sessionChanging) || get(currentFarm)?.id !== farm.id || (get(currentFarm)?.dataVersion ?? 0) !== (farm.dataVersion ?? 0)) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
         for (const { collection, payload } of normalized) {
+            if (collection === 'sales' || collection === 'sale_payments') {
+                const previous = (await db.outbox.toArray()).filter((r) => r.collection === collection && r.record_id === payload.id);
+                if (previous.length && get(syncing)) throw new Error('Esperá a que termine el envío antes de corregir el registro financiero.');
+                await db.outbox.bulkDelete(previous.map((r) => r.id!));
+            }
             await db[collection].put(payload as never);
             await db.outbox.add({ collection, record_id: payload.id, payload, created_at: new Date().toISOString() });
         }
