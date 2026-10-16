@@ -9,8 +9,9 @@
 	import { currentFarm } from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tabs from '$lib/components/ui/tabs';
-	import { db, type Animal, type HealthEvent, type Milking, type ReproductiveEvent, type Weighing } from '$lib/db';
+	import { db, type AnimalAgreement, type Animal, type HealthEvent, type Milking, type ReproductiveEvent, type Weighing } from '$lib/db';
 
+	let agreements = $state<AnimalAgreement[]>([]);
 	let animal = $state<Animal | null>(null);
 	let mother = $state<Animal | null>(null);
 	let father = $state<Animal | null>(null);
@@ -73,6 +74,7 @@
 			.sort()
 			.reverse();
 		activeWithdrawal = active[0] ?? null;
+		agreements = $currentFarm?.role === 'admin' ? (await db.agreements.where('farm').equals(found.farm).toArray()).filter((a) => a.animals.some((r) => r.animal === found.id)) : [];
 		animal = found;
 	}
 	onMount(() => {
@@ -160,6 +162,7 @@
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {#each [{label:'Lote',value:lotName}, {label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
         </div>
+        <section class="panel space-y-3 p-5"><h2 class="section-title">Acuerdos y estadías</h2>{#if $currentFarm?.role === 'admin'}{#each agreements as agreement}<a class="block rounded-xl border p-3 text-sm" href="/agreements/{agreement.id}"><strong>{agreement.title}</strong><span class="mt-1 block text-xs text-[#7c8e70]">{agreement.external_farm} · {agreement.partner_name} · {agreement.status === 'active' ? 'En curso' : 'Liquidado'}</span></a>{:else}<p class="field-help">Sin acuerdos registrados para este animal.</p>{/each}<a class="back-link mb-0" href="/agreements/new?animal={animal.id}">Registrar un acuerdo para este animal</a>{:else}<p class="field-help">Los acuerdos y sus liquidaciones están disponibles para administradores.</p>{/if}</section>
         <Tabs.Root value="general">
 			<Tabs.List class="grid h-auto min-h-11 w-full grid-cols-4">
 				<Tabs.Trigger value="general">General</Tabs.Trigger>

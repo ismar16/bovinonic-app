@@ -119,7 +119,7 @@ export async function gmdAlerts(farmId: string): Promise<GmdAlertRow[]> {
 	return rows.sort((a, b) => a.gmd - b.gmd);
 }
 
-function toCsv(headers: string[], rows: (string | number | null)[][]): string {
+export function toCsv(headers: string[], rows: (string | number | null)[][]): string {
 	const escape = (value: string | number | null) => {
 		if (value === null || value === undefined) return '';
 		const raw = String(value);

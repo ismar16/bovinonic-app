@@ -102,6 +102,7 @@ export interface OutboxRecord {
 		| 'brands'
 		| 'paddocks'
 		| 'lots'
+		| 'agreements'
 		| 'weighings'
 		| 'milkings'
 		| 'reproductive_events'
@@ -124,7 +125,32 @@ export interface AnimalLot {
 	updated_at?: string;
 }
 
+export interface AgreementAnimal {
+	animal: string; tag: string; name: string;
+	initial_weight: string | null; final_weight: string | null;
+	price_per_kg: string | null; final_date: string | null;
+}
+export interface AgreementExpense {
+	id: string; date: string; concept: string; amount: string;
+	paid_by: 'owner' | 'partner'; animal: string | null;
+}
+export interface AgreementSettlement {
+	kind: string; expenses: string; owner_paid: string; partner_paid: string;
+	partner_reimbursement?: string;
+	lines?: { animal: string; gain_kg: string; sale_value: string; initial_value: string; gain_value: string; assigned_expenses: string }[];
+	sale_value?: string; initial_value?: string; gain_value?: string; net_gain?: string;
+	owner_part?: string; partner_part?: string; owner_total?: string; partner_total?: string;
+}
+export interface AnimalAgreement {
+	id: string; farm: string; title: string; owner_name: string; partner_name: string; external_farm: string;
+	kind: 'weight_gain' | 'sale' | 'offspring' | 'pasture'; currency: 'NIO' | 'USD'; owner_share: string;
+	start_date: string; end_date: string | null; status: 'active' | 'settled'; notes: string;
+	animals: AgreementAnimal[]; expenses: AgreementExpense[]; settlement?: AgreementSettlement | null;
+	accept_loss?: boolean; updated_at?: string;
+}
+
 class GanaderiaDB extends Dexie {
+	agreements!: EntityTable<AnimalAgreement, 'id'>;
 	lots!: EntityTable<AnimalLot, 'id'>;
 	farms!: EntityTable<Farm, 'id'>;
 	owners!: EntityTable<Owner, 'id'>;
@@ -157,6 +183,7 @@ class GanaderiaDB extends Dexie {
 			lots: 'id, farm, name, updated_at',
 			animals: 'id, farm, tag, status, lot, updated_at'
 		});
+		this.version(3).stores({ agreements: 'id, farm, status, start_date, updated_at' });
 	}
 }
 

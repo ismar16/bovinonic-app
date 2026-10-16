@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CattleMark from '$lib/components/CattleMark.svelte';
 	import { page } from '$app/state';
-	import { Bell, Beef, ChartNoAxesCombined, ClipboardList, Home, Settings } from 'lucide-svelte';
+	import { Bell, Beef, ChartNoAxesCombined, ClipboardList, Home, Settings, Handshake } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import { liveQuery } from 'dexie';
 
@@ -44,7 +44,7 @@
 </script>
 
 <nav
-	class="fixed inset-x-0 bottom-0 z-10 mx-auto grid h-16 w-full max-w-xl grid-cols-5 border-t bg-white lg:inset-y-0 lg:left-0 lg:right-auto lg:mx-0 lg:flex lg:h-screen lg:w-60 lg:max-w-none lg:flex-col lg:gap-2 lg:border-r lg:border-t-0 lg:border-[#1e3e30] lg:bg-[#183b2d] lg:px-4 lg:py-7"
+	class="fixed inset-x-0 bottom-0 z-10 mx-auto grid h-16 w-full max-w-xl grid-cols-5 border-t bg-white lg:overflow-y-auto lg:inset-y-0 lg:left-0 lg:right-auto lg:mx-0 lg:flex lg:h-screen lg:w-60 lg:max-w-none lg:flex-col lg:gap-2 lg:border-r lg:border-t-0 lg:border-[#1e3e30] lg:bg-[#183b2d] lg:px-4 lg:py-7"
 	aria-label="Navegación principal"
 >
 	<a href="/" class="mb-9 hidden items-center gap-3 px-3 text-lg font-semibold text-white lg:flex">
@@ -53,13 +53,13 @@
 	</a>
 	{#each items as item (item.href)}
 		{@const active = item.href === '/' ? path === '/' : item.href === '/herd'
-			? path.startsWith('/herd') || path.startsWith('/animals/') || path.startsWith('/lots')
+			? path.startsWith('/herd') || path.startsWith('/animals/') || path.startsWith('/lots') || path.startsWith('/agreements')
 			: item.href === '/operations' ? ['/operations', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
 			: path.startsWith(item.href)}
 		<a
 			href={item.href}
 			class="relative flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold lg:min-h-12 lg:flex-row lg:justify-start lg:gap-3 lg:rounded-lg lg:px-3 lg:text-sm {active
-				? 'text-primary lg:bg-white/10 lg:text-white'
+				? path.startsWith('/agreements') && item.href === '/herd' ? 'text-primary lg:text-white/60' : 'text-primary lg:bg-white/10 lg:text-white'
 				: 'text-neutral-500 lg:text-white/60 lg:hover:bg-white/5 lg:hover:text-white'}"
 			aria-current={active ? 'page' : undefined}
 		>
@@ -75,6 +75,7 @@
 		</a>
 	{/each}
 	<a href="/lots" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold text-white/60 hover:bg-white/5 lg:flex"><Beef class="h-6 w-6" /> Lotes de animales</a>
+	{#if $currentFarm?.role === 'admin'}<a href="/agreements" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/agreements') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}"><Handshake class="h-6 w-6" /> Acuerdos y estadías</a>{/if}
 	<a href="/reports" aria-current={path.startsWith('/reports') ? 'page' : undefined}
 		class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/reports') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}">
 		<ChartNoAxesCombined class="h-6 w-6" /> Reportes

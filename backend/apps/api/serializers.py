@@ -1,4 +1,6 @@
 from decimal import Decimal
+from datetime import date
+from uuid import UUID
 from django.utils import timezone
 
 from rest_framework import serializers
@@ -6,7 +8,8 @@ from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, Brand, Owner, Paddock
+from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
 
@@ -60,6 +63,121 @@ class AnimalLotSerializer(FarmScopedSerializer):
         fields = ["id", "farm", "name", "description", "updated_at"]
         read_only_fields = ["updated_at"]
         validators = []
+
+
+class AnimalAgreementSerializer(FarmScopedSerializer):
+    owner_share = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0, max_value=100, required=False, default=50)
+
+    class Meta:
+        model = AnimalAgreement
+        fields = ['id', 'farm', 'title', 'owner_name', 'partner_name', 'external_farm', 'kind',
+                  'currency', 'owner_share', 'start_date', 'end_date', 'status', 'notes',
+                  'animals', 'expenses', 'settlement', 'updated_at']
+        read_only_fields = ['settlement', 'updated_at']
+
+    def validate(self, attrs):
+        def iso(value, label):
+            try:
+                parsed = date.fromisoformat(value)
+                if parsed.isoformat() != value or parsed > timezone.localdate() or parsed < start:
+                    raise ValueError()
+                return value
+            except (ValueError, TypeError):
+                raise ValueError(f'{label}: elegí una fecha entre el inicio del acuerdo y hoy.')
+
+        try:
+            record_id = str(UUID(str(self.context['record_id']))) if self.context.get('record_id') else None
+            farm_id = self.context.get('farm_id') or attrs['farm'].pk
+            existing = AnimalAgreement.objects.filter(pk=record_id, farm_id=farm_id).first() if record_id else None
+            start = attrs['start_date']
+            end = attrs.get('end_date')
+            kind = attrs.get('kind', 'weight_gain')
+            settled = attrs.get('status', 'active') == 'settled'
+            if not settled:
+                end = None
+                attrs['end_date'] = None
+            if start > timezone.localdate() or (end and (end < start or end > timezone.localdate())):
+                raise ValueError('Revisá las fechas de inicio y cierre del acuerdo.')
+            if settled and not end:
+                raise ValueError('Indicá la fecha de liquidación.')
+            rows = attrs.get('animals', [])
+            expenses = attrs.get('expenses', [])
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 500:
+                raise ValueError('Seleccioná entre 1 y 500 animales.')
+            if not isinstance(expenses, list) or len(expenses) > 2000:
+                raise ValueError('La lista de gastos no es válida (máximo 2000).')
+            normalized = []
+            ids = set()
+            if any(not isinstance(row, dict) for row in rows):
+                raise ValueError('Los datos de animales no son válidos.')
+            requested_ids = [str(UUID(str(row.get('animal', '')))) for row in rows]
+            animals_by_id = {str(animal.id): animal for animal in Animal.objects.filter(farm_id=farm_id, pk__in=requested_ids)}
+            prior_rows = {r['animal']: r for r in existing.animals} if existing else {}
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    raise ValueError('Los datos de animales no son válidos.')
+                animal_id = str(UUID(str(row.get('animal', ''))))
+                if animal_id in ids:
+                    raise ValueError('Un animal no puede aparecer dos veces en el mismo acuerdo.')
+                ids.add(animal_id)
+                animal = animals_by_id.get(animal_id)
+                if not animal:
+                    raise ValueError('Todos los animales deben pertenecer al hato de esta finca.')
+                if animal.birth_date and start < animal.birth_date and not (existing and existing.status == 'settled'):
+                    raise ValueError(f'{animal.tag}: el acuerdo no puede iniciar antes de su nacimiento.')
+                prior = prior_rows.get(animal_id)
+                if not prior and animal.status != 'active':
+                    raise ValueError(f'{animal.tag}: solo se pueden entregar animales activos.')
+                item = {'animal': animal_id, 'tag': prior['tag'] if existing and existing.status == 'settled' and prior else animal.tag,
+                        'name': prior.get('name', '') if existing and existing.status == 'settled' and prior else animal.name}
+                for field in ['initial_weight', 'final_weight', 'price_per_kg']:
+                    raw = row.get(field)
+                    required = (field == 'initial_weight' and kind == 'weight_gain') or (settled and kind != 'pasture' and field in ('final_weight', 'price_per_kg'))
+                    item[field] = format(amount(raw, minimum=Decimal('.01'), maximum=Decimal('99999.99') if 'weight' in field else Decimal('9999999.99')), '.2f') if raw not in (None, '') else None
+                    if required and item[field] is None:
+                        raise ValueError(f'{animal.tag}: completá el peso inicial, peso final y precio que requiere esta modalidad.')
+                item['final_date'] = iso(row['final_date'], animal.tag) if row.get('final_date') else None
+                if settled and kind != 'pasture' and not item['final_date']:
+                    raise ValueError(f'{animal.tag}: indicá la fecha del pesaje final o venta.')
+                if end and item['final_date'] and date.fromisoformat(item['final_date']) > end:
+                    raise ValueError('Un pesaje final no puede ser posterior al cierre.')
+                normalized.append(item)
+            ledger = []
+            expense_ids = set()
+            for expense in expenses:
+                if not isinstance(expense, dict):
+                    raise ValueError('Los datos de gastos no son válidos.')
+                expense_id = str(UUID(str(expense.get('id', ''))))
+                if expense_id in expense_ids:
+                    raise ValueError('Hay gastos repetidos en el acuerdo.')
+                expense_ids.add(expense_id)
+                concept = str(expense.get('concept', '')).strip()
+                if not concept or len(concept) > 200 or expense.get('paid_by') not in ('owner', 'partner'):
+                    raise ValueError('Cada gasto necesita concepto (hasta 200 caracteres) y quién lo pagó.')
+                animal_id = expense.get('animal') or None
+                if animal_id and animal_id not in ids:
+                    raise ValueError('El animal del gasto debe estar incluido en el acuerdo.')
+                day = iso(expense.get('date'), 'Gasto')
+                if end and date.fromisoformat(day) > end:
+                    raise ValueError('No se pueden incluir gastos posteriores al cierre.')
+                ledger.append({'id': expense_id, 'date': day, 'concept': concept,
+                               'amount': format(amount(expense.get('amount'), minimum=Decimal('.01')), '.2f'),
+                               'paid_by': expense['paid_by'], 'animal': animal_id})
+            attrs['animals'], attrs['expenses'] = normalized, ledger
+            attrs['settlement'] = calculate_settlement(kind, normalized, ledger, attrs['owner_share']) if settled else None
+            if settled and kind != 'pasture' and Decimal(attrs['settlement']['net_gain']) < 0 and not ((existing and existing.status == 'settled') or self.initial_data.get('accept_loss') is True):
+                raise ValueError('La liquidación tiene saldo negativo. Confirmá expresamente su reparto antes de cerrar.')
+            if existing and existing.status == 'settled':
+                for field, value in attrs.items():
+                    if field != 'settlement' and getattr(existing, field) != value:
+                        raise ValueError('Un acuerdo liquidado no se puede modificar. Su liquidación se conserva como historial.')
+                return attrs
+            for other in AnimalAgreement.objects.filter(farm_id=farm_id, status='active').exclude(pk=record_id):
+                if ids.intersection(r['animal'] for r in other.animals) and (not end or other.start_date <= end):
+                    raise ValueError(f'Hay animales incluidos en otro acuerdo en curso: {other.title}.')
+            return attrs
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise serializers.ValidationError({'agreement': str(exc) or 'Revisá los datos del acuerdo.'})
 
 
 class AnimalSerializer(FarmScopedSerializer):

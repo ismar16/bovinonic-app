@@ -12,6 +12,7 @@ const PULL_TABLES = [
 	'paddocks',
 	'lots',
 	'animals',
+	'agreements',
 	'weighings',
 	'milkings',
 	'reproductive_events',
@@ -19,7 +20,7 @@ const PULL_TABLES = [
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v2';
+const LAST_PULL_KEY = 'last_pull_server_at_v3';
 const CHUNK_SIZE = 20;
 const SAVE_SYNC_DELAY_MS = 1500;
 const savedListeners = new Set<() => void>();
@@ -45,10 +46,10 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
     if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
     const rank: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
     const normalized = records.map(({ collection, payload }) => {
-        const minimum = ['owners','brands','paddocks'].includes(collection) ? 3
+        const minimum = ['owners','brands','paddocks','agreements'].includes(collection) ? 3
             : ['animals','lots','reproductive_events','health_events'].includes(collection) ? 2 : 1;
         if ((rank[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
-        const catalog = ['animals','lots','owners','brands','paddocks'].includes(collection);
+        const catalog = ['animals','lots','owners','brands','paddocks','agreements'].includes(collection);
         return { collection, payload: catalog ? { ...payload, farm: farm.id } : payload };
     });
     const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];

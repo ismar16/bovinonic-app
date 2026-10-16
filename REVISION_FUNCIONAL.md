@@ -86,3 +86,51 @@ la interfaz. El tiempo total de confirmación depende de la respuesta del servid
 Pruebas del cliente: 31 aprobadas, incluidas agrupación de guardados, cambios
 durante una subida lenta, reconexión, retorno a la aplicación, intento periódico
 y cancelación de temporizadores. Los formularios indican el envío automático.
+
+## Acuerdos de manejo en otras fincas
+
+Se incorporan acuerdos independientes de la propiedad y de los lotes de manejo,
+con propietario, responsable, finca externa, moneda NIO/USD, fechas, condiciones,
+animales y gastos pagados. Las modalidades son ganancia de peso, valor completo
+de venta, valor de venta de crías y pasto alquilado. El reparto físico de crías y
+el cálculo automático del alquiler por mes/cabeza no forman parte de esta entrega.
+
+La ganancia de peso conserva un peso inicial individual y usa pesos/precios
+finales por animal. Los gastos se descuentan antes del reparto y se reembolsan a
+quien los pagó. El valor inicial corresponde al propietario. Los totales de las
+dos partes suman el valor de venta; los redondeos conservan los centavos. El
+servidor calcula con Decimal y el cliente con enteros BigInt; comparten siete
+casos de prueba, incluidos pérdidas, porcentajes distintos y centavos impares.
+El cierre con saldo negativo requiere una confirmación explícita que se renueva
+al modificar datos del cálculo.
+
+El acuerdo se sincroniza como una unidad indivisible. El servidor valida finca,
+animales, importes, fechas y gastos; rechaza animales en dos acuerdos en curso y
+bloquea modificaciones después de liquidar. La liquidación del servidor ignora
+los totales calculados enviados por el cliente. Los acuerdos y sus importes se
+reservan al administrador. El hato identifica la finca externa mientras el
+acuerdo está en curso y la ficha conserva los enlaces a su historial.
+
+Las liquidaciones no ejecutan pagos ni marcan animales como vendidos. Los gastos
+son importes efectivamente pagados e ingresados manualmente; no se importan
+tratamientos sanitarios sin costo. Un acuerdo con varios animales se liquida
+completo; para liquidaciones independientes se crea uno por animal. Puede
+descargarse un CSV con condiciones, pesos, precios, gastos y liquidación.
+
+Comprobado en navegador con una finca DEMO y SQLite en memoria:
+
+- Crear un acuerdo, tomar el peso inicial del historial y enviarlo automáticamente.
+- Filtrar el animal en otras fincas y abrir el acuerdo desde su ficha.
+- Editar, agregar un gasto médico, liquidar y confirmar en la API local.
+- Ejemplo de 180 a 280 kg, C$100/kg y C$1.000 de medicamentos: saldo C$9.000,
+  partes C$4.500; total propietario C$23.500 y responsable C$4.500.
+- Exportar el CSV y verificar esos importes en el archivo descargado.
+- Pasto alquilado: gasto adelantado por el responsable de C$500, reembolso C$500,
+  sin reparto de ganancia ni pesos de venta obligatorios.
+- Bloqueo de la ruta de edición de un acuerdo liquidado.
+- Renovación de la confirmación de pérdida al cambiar un precio.
+- Listado, captura con animales/gastos, detalle y cierre a 320 px sin desbordamiento;
+  revisión visual del detalle de liquidación a 1280 px.
+
+Estas pruebas no introdujeron registros ficticios en producción. Validación:
+41 pruebas Django, 35 del cliente y comprobación Svelte/TypeScript.

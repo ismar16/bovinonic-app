@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, Brand, Owner, Paddock
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
@@ -21,6 +21,7 @@ from .permissions import HasFarmMembership
 from .serializers import (
     AnimalSerializer,
     AnimalLotSerializer,
+    AnimalAgreementSerializer,
     BrandSerializer,
     HealthEventSerializer,
     MilkingSerializer,
@@ -36,6 +37,7 @@ PULL_COLLECTIONS = {
     "paddocks": (Paddock, PaddockSerializer),
     "lots": (AnimalLot, AnimalLotSerializer),
     "animals": (Animal, AnimalSerializer),
+    "agreements": (AnimalAgreement, AnimalAgreementSerializer),
     "weighings": (Weighing, WeighingSerializer),
     "milkings": (Milking, MilkingSerializer),
     "reproductive_events": (ReproductiveEvent, ReproductiveEventSerializer),
@@ -48,6 +50,7 @@ WRITE_COLLECTIONS = {
     "paddocks": (Paddock, PaddockSerializer, FarmMembership.Role.ADMIN),
     "lots": (AnimalLot, AnimalLotSerializer, FarmMembership.Role.TECHNICIAN),
     "animals": (Animal, AnimalSerializer, FarmMembership.Role.TECHNICIAN),
+    "agreements": (AnimalAgreement, AnimalAgreementSerializer, FarmMembership.Role.ADMIN),
     "weighings": (Weighing, WeighingSerializer, FarmMembership.Role.OPERATOR),
     "milkings": (Milking, MilkingSerializer, FarmMembership.Role.OPERATOR),
     "reproductive_events": (
@@ -63,7 +66,7 @@ WRITE_COLLECTIONS = {
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
-CATALOG_MODELS = (Animal, AnimalLot, Owner, Brand, Paddock)
+CATALOG_MODELS = (Animal, AnimalLot, AnimalAgreement, Owner, Brand, Paddock)
 
 ROLE_RANK = {
     FarmMembership.Role.OPERATOR: 1,
@@ -101,6 +104,9 @@ class SyncPullView(APIView):
 
         payload = {}
         for name, (model, serializer_class) in PULL_COLLECTIONS.items():
+            if name == 'agreements' and request.farm_membership.role != FarmMembership.Role.ADMIN:
+                payload[name] = []
+                continue
             queryset = model.objects.filter(farm_id=farm_id)
             if since:
                 queryset = queryset.filter(updated_at__gt=since)
@@ -201,6 +207,16 @@ class SyncBatchView(APIView):
                     if collection_errors:
                         errors[name] = collection_errors
                         raise ValueError(f"Errores de validación en {name}.")
+
+                    if model is AnimalAgreement:
+                        active_ids = set()
+                        for _, validated, _ in validated_records:
+                            if validated.get('status', 'active') != 'active':
+                                continue
+                            ids = {row['animal'] for row in validated['animals']}
+                            if active_ids.intersection(ids):
+                                raise ValueError('Un animal no puede estar en dos acuerdos en curso del mismo envío.')
+                            active_ids.update(ids)
 
                     if not validated_records:
                         continue

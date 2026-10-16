@@ -170,3 +170,36 @@ class Animal(TimeStampedModel):
 
     def __str__(self):
         return f"{self.tag} - {self.name or 'sin nombre'}"
+
+
+class AnimalAgreement(TimeStampedModel):
+    class Kind(models.TextChoices):
+        WEIGHT_GAIN = 'weight_gain', _('Ganancia de peso')
+        SALE = 'sale', _('Valor de venta')
+        OFFSPRING = 'offspring', _('Crías: valor de venta')
+        PASTURE = 'pasture', _('Pasto alquilado')
+
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='animal_agreements')
+    title = models.CharField(max_length=150)
+    owner_name = models.CharField(max_length=150)
+    partner_name = models.CharField(max_length=150)
+    external_farm = models.CharField(max_length=150)
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.WEIGHT_GAIN)
+    currency = models.CharField(max_length=3, choices=[('NIO', 'Córdobas'), ('USD', 'Dólares')], default='NIO')
+    owner_share = models.DecimalField(max_digits=5, decimal_places=2, default=50)
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=[('active', 'En curso'), ('settled', 'Liquidado')], default='active')
+    notes = models.CharField(max_length=2000, blank=True)
+    # A whole agreement (terms, individual weights and ledger) syncs atomically.
+    animals = models.JSONField(default=list)
+    expenses = models.JSONField(default=list)
+    settlement = models.JSONField(null=True, blank=True, editable=False)
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at'])]
+        verbose_name = 'acuerdo de manejo'
+        verbose_name_plural = 'acuerdos de manejo'
+
+    def __str__(self):
+        return self.title

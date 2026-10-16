@@ -12,6 +12,7 @@ from apps.core.models import Farm, FarmMembership
 
 
 LABELS = (
+    'livestock.AnimalAgreement',
     'health.HealthEvent', 'reproduction.ReproductiveEvent',
     'production.Milking', 'production.Weighing', 'livestock.Animal',
     'livestock.Brand', 'livestock.Owner', 'livestock.Paddock', 'livestock.AnimalLot',

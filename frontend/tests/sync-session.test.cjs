@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'weighings', 'milkings',
+  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'weighings', 'milkings',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v2', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v3', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v2')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v3')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -283,7 +283,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v2', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v3', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -419,4 +419,51 @@ test('automatic sync waits for session changes and cleanup cancels scheduled wor
   await ctx.tick(2000); assert.equal(uploads, 1);
   assert.equal(ctx.timers.size, 0); assert.equal(ctx.intervals.size, 0);
   assert.equal(ctx.window.count(), 0); assert.equal(ctx.document.count(), 0);
+});
+
+const agreementHelpers = () => load('agreements', { './forms': load('forms', {}), './dates': load('dates', {}) });
+
+test('client and server use the same settlement vectors, including rounding, losses and all modalities', () => {
+  const { agreementSettlement } = agreementHelpers();
+  const vectors = JSON.parse(readFileSync(join(__dirname, '../../backend/apps/livestock/settlement_vectors.json'), 'utf8').replace(/^\uFEFF/, ''));
+  for (const vector of vectors) {
+    const result = agreementSettlement(vector);
+    for (const [key, value] of Object.entries(vector.expected)) assert.equal(result[key], value, `${vector.name}:${key}`);
+    if (vector.kind !== 'pasture') {
+      const cents = value => BigInt(value.replace('.', ''));
+      assert.equal(cents(result.owner_total) + cents(result.partner_total), cents(result.sale_value));
+    }
+  }
+});
+
+function draftAgreement() {
+  return { id: 'agreement', farm: 'farm-a', title: 'A medias', owner_name: 'Owner', partner_name: 'Partner', external_farm: 'Other farm', kind: 'weight_gain', currency: 'NIO', owner_share: '50', start_date: '2026-09-01', end_date: '2026-09-30', status: 'active', notes: '',
+    animals: [{ animal: 'cow', tag: 'NI-1', name: '', initial_weight: '180', final_weight: '280', price_per_kg: '100', final_date: '2026-09-30' }],
+    expenses: [{ id: 'expense', date: '2026-09-15', concept: 'Medicines', amount: '1000', paid_by: 'owner', animal: null }] };
+}
+
+test('settlement validation normalizes comma decimals and does not modify the draft', () => {
+  const { validateAgreement } = agreementHelpers(); const draft = draftAgreement(); draft.animals[0].initial_weight = '180,00';
+  const settled = validateAgreement(draft, true);
+  assert.equal(settled.status, 'settled'); assert.equal(settled.animals[0].initial_weight, '180.00');
+  assert.equal(settled.settlement.owner_total, '23500.00'); assert.equal(draft.status, 'active');
+});
+
+test('closing validates dates, required sale data, out-of-agreement expenses and explicit losses', () => {
+  const { validateAgreement } = agreementHelpers();
+  let draft = draftAgreement(); draft.animals[0].final_date = null; assert.throws(() => validateAgreement(draft, true), /fecha final/);
+  draft = draftAgreement(); draft.expenses[0].animal = 'other-cow'; assert.throws(() => validateAgreement(draft), /gastos/);
+  draft = draftAgreement(); draft.expenses[0].date = '2026-08-30'; assert.throws(() => validateAgreement(draft), /fecha/);
+  draft = draftAgreement(); draft.animals[0].final_weight = '170'; assert.throws(() => validateAgreement(draft, true), /negativo/);
+  draft.accept_loss = true; assert.equal(validateAgreement(draft,true).settlement.net_gain, '-2000.00');
+});
+
+test('agreement writes require administrator and survive ordinary sync', async () => {
+  const { sync, stores, db, api } = setup(); stores.currentFarm.set({ id: 'farm-a', role: 'technician' });
+  await assert.rejects(sync.enqueue('agreements', draftAgreement()), /rol/); assert.equal(await db.outbox.count(), 0);
+  stores.currentFarm.set({ id: 'farm-a', role: 'admin' });
+  await sync.enqueue('agreements', draftAgreement());
+  api.pushBatch = async (_farm, data) => { assert.equal(data.agreements[0].farm, 'farm-a'); return { agreements: [{ id: 'agreement', status: 'created' }] }; };
+  api.pull = async () => ({ agreements: [{ ...draftAgreement(), title: 'Server validated' }] });
+  await sync.syncNow(); assert.equal(await db.outbox.count(), 0); assert.equal((await db.agreements.get('agreement')).title, 'Server validated');
 });
