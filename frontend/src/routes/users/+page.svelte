@@ -1,138 +1,16 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
-
-	import { ApiError, createFarmUser, listFarmUsers, type FarmUser } from '$lib/api';
-	import { currentFarm, online } from '$lib/stores';
-
-	const ROLES = [
-		{ value: 'operator', label: 'Operador de corral' },
-		{ value: 'technician', label: 'Técnico/Veterinario' },
-		{ value: 'admin', label: 'Administrador' }
-	] as const;
-
-	let users = $state<FarmUser[]>([]);
-	let username = $state('');
-	let password = $state('');
-	let role = $state<(typeof ROLES)[number]['value']>('operator');
-	let error = $state('');
-	let success = $state('');
-	let loading = $state(false);
-
-	async function load() {
-		const farm = $currentFarm;
-		if (!farm) return;
-		users = await listFarmUsers(farm.id);
-	}
-
-	onMount(async () => {
-		const farm = $currentFarm;
-		if (!farm || farm.role !== 'admin') {
-			await goto('/settings');
-			return;
-		}
-		try {
-			await load();
-		} catch {
-			error = 'Sin conexión: la gestión de usuarios requiere internet.';
-		}
-	});
-
-	async function save() {
-		const farm = $currentFarm;
-		if (!farm) return;
-		error = '';
-		success = '';
-		loading = true;
-		try {
-			await createFarmUser(farm.id, username.trim(), password, role);
-			success = `Usuario ${username.trim()} creado con rol ${role}.`;
-			username = '';
-			password = '';
-			await load();
-		} catch (e) {
-			if (e instanceof ApiError && e.body && typeof e.body === 'object' && 'detail' in e.body) {
-				error = String((e.body as { detail: unknown }).detail);
-			} else {
-				error = 'Error al crear el usuario (verificá la conexión).';
-			}
-		} finally {
-			loading = false;
-		}
-	}
+    import { onMount } from 'svelte';
+    import { createFarmUser,listFarmUsers,type FarmUser } from '$lib/api';
+    import { currentFarm,online } from '$lib/stores';
+    import { errorMessage } from '$lib/forms';
+    import PageHeader from '$lib/components/PageHeader.svelte';
+    import Notice from '$lib/components/Notice.svelte';
+    const roles: Record<string,string> = {operator:'Operador de corral',technician:'Técnico',admin:'Administrador'};
+    let users = $state<FarmUser[]>([]); let username = $state(''); let password = $state(''); let role = $state('operator'); let error = $state(''); let success = $state(''); let loading = $state(true); let saving = $state(false);
+    async function load() { if (!$currentFarm || $currentFarm.role !== 'admin') return; loading = true; try { users = await listFarmUsers($currentFarm.id); } catch(cause) { error = errorMessage(cause,'No se pudieron consultar los usuarios. Esta vista requiere conexión.'); } finally { loading = false; } }
+    onMount(() => { void load(); });
+    async function save(event:SubmitEvent) { event.preventDefault(); if (saving || !$currentFarm || !$online) return; saving = true; error = ''; success = ''; try { await createFarmUser($currentFarm.id,username.trim(),password,role); success = `Se creó ${username.trim()} con el rol ${roles[role]}.`; username = ''; password = ''; await load(); } catch(cause) { error = errorMessage(cause,'No se pudo crear el usuario. Revisá la conexión.'); } finally { saving = false; } }
 </script>
-
-<svelte:head><title>Usuarios · Gestión Ganadera</title></svelte:head>
-
-<div class="flex flex-col gap-4 pt-4">
-	<h1 class="text-2xl font-extrabold">Usuarios de la finca</h1>
-
-	{#if !$online}
-		<p class="rounded-md border-2 border-yellow-600 bg-yellow-50 p-3 font-bold text-yellow-800">
-			Modo campo: la gestión de usuarios requiere conexión.
-		</p>
-	{/if}
-
-	<section class="rounded-md border-2 border-black p-4">
-		<h2 class="mb-2 text-xl font-extrabold">Con acceso ({users.length})</h2>
-		<ul class="flex flex-col gap-1">
-			{#each users as u (u.id)}
-				<li class="flex justify-between">
-					<span class="font-bold">{u.username}</span>
-					<span class="text-sm uppercase">{u.role}</span>
-				</li>
-			{:else}
-				<li class="text-neutral-600">Sin datos (requiere conexión).</li>
-			{/each}
-		</ul>
-	</section>
-
-	<section class="rounded-md border-2 border-black p-4">
-		<h2 class="mb-2 text-xl font-extrabold">Crear usuario</h2>
-		<div class="flex flex-col gap-3">
-			<input
-				bind:value={username}
-				placeholder="Usuario"
-				autocomplete="off"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-			<input
-				bind:value={password}
-				type="password"
-				placeholder="Contraseña (mín. 8)"
-				autocomplete="new-password"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-			<select
-				bind:value={role}
-				class="h-14 rounded-md border-2 border-black bg-white px-4 text-xl"
-			>
-				{#each ROLES as r}
-					<option value={r.value}>{r.label}</option>
-				{/each}
-			</select>
-			{#if error}
-				<p class="rounded-md border-2 border-red-700 bg-red-50 p-3 font-bold text-red-700">{error}</p>
-			{/if}
-			{#if success}
-				<p class="rounded-md border-2 border-green-700 bg-green-50 p-3 font-bold text-green-700">{success}</p>
-			{/if}
-			<button
-				type="button"
-				onclick={save}
-				disabled={loading || !$online || !username.trim() || !password}
-				class="h-14 rounded-md bg-green-700 text-xl font-extrabold text-white disabled:opacity-50"
-			>
-				{loading ? 'Creando…' : 'Crear usuario'}
-			</button>
-		</div>
-	</section>
-
-	<button
-		type="button"
-		onclick={() => goto('/settings')}
-		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
-	>
-		Volver
-	</button>
-</div>
+<svelte:head><title>Usuarios · Bovinonic</title></svelte:head>
+<div class="workspace-page space-y-5"><PageHeader title="El equipo de la finca" eyebrow="Usuarios y permisos" description="Cada persona ingresa con su cuenta. El rol determina qué puede registrar y administrar." backHref="/settings" backLabel="Ajustes" /><Notice tone="error" message={error} /><Notice tone="success" message={success} />
+{#if $currentFarm?.role !== 'admin'}<Notice tone="warning" message="Esta vista está disponible para administradores." />{:else}<div class="grid gap-5 xl:grid-cols-2"><section class="panel p-5"><div class="mb-5 flex items-center justify-between"><h2 class="section-title">Con acceso ({users.length})</h2><button class="quiet-button" type="button" disabled={loading || !$online} onclick={load}>Actualizar</button></div><ul class="divide-y">{#each users as user}<li class="flex flex-wrap justify-between gap-2 py-3"><span class="text-sm font-semibold">{user.username}</span><span class="status-pill {user.is_active ? '' : 'historical'}">{roles[user.role] ?? user.role}{user.is_active ? '' : ' · Inactivo'}</span></li>{:else}<li class="empty-state">{loading ? 'Consultando usuarios…' : 'No hay datos disponibles. Revisá la conexión.'}</li>{/each}</ul></section><section class="panel space-y-5 p-5"><h2 class="section-title">Crear acceso</h2>{#if !$online}<Notice tone="warning" message="La creación de usuarios requiere conexión; no se guarda en la cola de campo." />{/if}<form onsubmit={save} class="space-y-4"><label class="field-label">Usuario<input class="field" bind:value={username} maxlength="150" autocomplete="off" required /></label><label class="field-label">Contraseña inicial<input class="field" bind:value={password} type="password" autocomplete="new-password" minlength="8" required /><span class="field-help">Al menos 8 caracteres. Evitá contraseñas comunes y datos del usuario.</span></label><label class="field-label">Rol<select class="field" bind:value={role}>{#each Object.entries(roles) as [value,label]}<option {value}>{label}</option>{/each}</select></label><p class="notice">{role === 'operator' ? 'Consulta del hato, registro de ordeños y pesajes.' : role === 'technician' ? 'También puede editar animales, lotes, sanidad y reproducción.' : 'Acceso completo, incluidos catálogos y creación de usuarios.'}</p><button class="action-button" type="submit" disabled={saving || !$online}>{saving ? 'Creando acceso…' : 'Crear usuario'}</button></form></section></div>{/if}</div>

@@ -1,74 +1,24 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { login, me } from '$lib/api';
-	import { currentFarm, sessionUser, availableFarms } from '$lib/stores';
-	import { syncNow } from '$lib/sync';
-
-	let username = $state('');
-	let password = $state('');
-	let error = $state('');
-	let loading = $state(false);
-
-	async function handleSubmit(event: SubmitEvent) {
-		event.preventDefault();
-		loading = true;
-		error = '';
-		try {
-			await login(username, password);
-			const user = await me();
-			sessionUser.set({ id: user.id, username: user.username });
-			if (user.farms.length > 0) {
-				availableFarms.set(
-					user.farms.map((f) => ({ id: f.farm, name: f.farm_name, role: f.role }))
-				);
-				const first = user.farms[0];
-				currentFarm.set({ id: first.farm, name: first.farm_name, role: first.role });
-				await syncNow();
-			}
-			await goto('/');
-		} catch {
-			error = 'Usuario o contraseña incorrectos, o sin conexión.';
-		} finally {
-			loading = false;
-		}
-	}
+    import { goto } from '$app/navigation';
+    import { page } from '$app/state';
+    import { Eye, EyeOff, LockKeyhole, ArrowRight } from 'lucide-svelte';
+    import { login, me, ApiError } from '$lib/api';
+    import { acceptUser } from '$lib/session';
+    import { errorMessage } from '$lib/forms';
+    import { syncNow } from '$lib/sync';
+    import CattleMark from '$lib/components/CattleMark.svelte';
+    import Notice from '$lib/components/Notice.svelte';
+    let username = $state(''); let password = $state(''); let visible = $state(false); let error = $state(''); let loading = $state(false);
+    async function submit(event: SubmitEvent) {
+        event.preventDefault(); if (loading) return; loading = true; error = '';
+        try {
+            await login(username.trim(),password); await acceptUser(await me()); await syncNow();
+            const target = page.url.searchParams.get('next');
+            await goto(target?.startsWith('/') && !target.startsWith('//') && !target.startsWith('/login') ? target : '/');
+        } catch (cause) { error = cause instanceof ApiError && cause.statusCode === 401 ? 'Usuario o contraseña incorrectos. Revisá ambos e intentá otra vez.' : errorMessage(cause, 'No se pudo conectar con la finca. Revisá tu conexión.'); }
+        finally { loading = false; }
+    }
 </script>
-
-<svelte:head><title>Iniciar sesión · Gestión Ganadera</title></svelte:head>
-
-<div class="pt-12">
-	<h1 class="mb-8 text-center text-3xl font-extrabold">Gestión Ganadera</h1>
-	<form onsubmit={handleSubmit} class="flex flex-col gap-4">
-		<label class="flex flex-col gap-1 font-bold">
-			Usuario
-			<input
-				bind:value={username}
-				required
-				autocomplete="username"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-		</label>
-		<label class="flex flex-col gap-1 font-bold">
-			Contraseña
-			<input
-				bind:value={password}
-				type="password"
-				required
-				autocomplete="current-password"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-		</label>
-		{#if error}
-			<p class="rounded-md border-2 border-red-700 bg-red-50 p-3 font-bold text-red-700">
-				{error}
-			</p>
-		{/if}
-		<button
-			type="submit"
-			disabled={loading}
-			class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white disabled:opacity-50"
-		>
-			{loading ? 'Ingresando…' : 'Ingresar'}
-		</button>
-	</form>
-</div>
+<svelte:head><title>Ingresar · Bovinonic</title></svelte:head>
+<div class="mx-auto max-w-md py-10 sm:py-16"><div class="mb-8 flex items-center gap-3"><span class="flex h-12 w-12 items-center justify-center rounded-xl bg-[#214c36] text-[#d4c79a]"><CattleMark class="h-8 w-8" /></span><span><span class="block font-serif text-3xl">Bovinonic</span><span class="eyebrow">Gestión de tu finca</span></span></div>
+<section class="panel space-y-6 p-6 sm:p-8"><header><p class="eyebrow">Bienvenido a tu finca</p><h1 class="mt-3 font-serif text-3xl">Todo empieza con un buen registro.</h1><p class="page-description">Ingresá para consultar tu hato y continuar el trabajo del día.</p></header><form onsubmit={submit} class="space-y-5"><label class="field-label">Usuario<input class="field" bind:value={username} autocomplete="username" required  /></label><label class="field-label">Contraseña<span class="relative block"><input class="field pr-12" bind:value={password} type={visible ? 'text' : 'password'} autocomplete="current-password" required /><button type="button" class="absolute inset-y-0 right-1 flex min-w-10 items-center justify-center text-[#8b9a7c]" aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={visible} onclick={() => visible = !visible}>{#if visible}<EyeOff class="h-4 w-4" />{:else}<Eye class="h-4 w-4" />{/if}</button></span></label><Notice tone="error" message={error} /><button class="action-button w-full" type="submit" disabled={loading}>{loading ? 'Ingresando…' : 'Ingresar a la finca'}<ArrowRight class="h-4 w-4" /></button></form><p class="flex items-start gap-2 text-xs leading-5 text-[#89977b]"><LockKeyhole class="mt-1 h-3.5 w-3.5 shrink-0" />Si olvidaste tu contraseña, contactá al administrador. El primer ingreso en este dispositivo requiere conexión.</p></section></div>

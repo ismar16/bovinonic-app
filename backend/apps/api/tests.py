@@ -6,7 +6,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.core.models import Farm, FarmMembership
-from apps.livestock.models import Animal, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
 from apps.health.models import HealthEvent
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
@@ -301,7 +301,7 @@ class SyncApiTests(TestCase):
             {
                 "farm": str(self.farm.id),
                 "username": "tecnico1",
-                "password": "password123",
+                "password": "ClaveCampo2026!A",
                 "role": "technician",
             },
             format="json",
@@ -513,3 +513,84 @@ class SyncApiTests(TestCase):
                 self.assertEqual(response.status_code, 400, response.content)
         self.assertFalse(Weighing.objects.exists())
         self.assertFalse(Milking.objects.exists())
+
+
+class AnimalLotSyncTests(TestCase):
+    setUp = SyncApiTests.setUp
+    login = SyncApiTests.login
+    # Keep these scenarios together so the transaction covers lot creation + animal writes.
+    def test_lot_existing_and_new_animals_sync_and_retry(self):
+        self.login('boss')
+        lot_id = str(uuid.uuid4())
+        new_id = str(uuid.uuid4())
+        payload = {'farm': str(self.farm.id), 'lots': [{'id': lot_id, 'name': 'Reemplazo', 'description': 'Novillas'}], 'animals': [
+            {'id': str(self.animal.id), 'tag': self.animal.tag, 'sex': 'H', 'category': 'cow_lactating', 'lot': lot_id},
+            {'id': new_id, 'tag': 'NI-BULK-1', 'sex': 'H', 'category': 'heifer', 'lot': lot_id}]}
+        for _ in range(2):
+            response = self.client.post('/api/sync/batch', payload, format='json')
+            self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(AnimalLot.objects.count(), 1)
+        self.assertEqual(Animal.objects.filter(lot_id=lot_id).count(), 2)
+        pulled = self.client.get('/api/sync/pull', {'farm': str(self.farm.id)})
+        self.assertEqual(pulled.status_code, 200)
+        self.assertEqual(pulled.data['lots'][0]['name'], 'Reemplazo')
+        payload['lots'][0]['name'] = 'Reemplazo actualizado'
+        payload['animals'][0]['lot'] = None
+        response = self.client.post('/api/sync/batch', payload, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.animal.refresh_from_db()
+        self.assertIsNone(self.animal.lot)
+        self.assertEqual(AnimalLot.objects.get(pk=lot_id).name, 'Reemplazo actualizado')
+
+    def test_invalid_bulk_rolls_back_lot_and_all_animals(self):
+        self.login('boss')
+        payload = {'farm': str(self.farm.id), 'lots': [{'id': str(uuid.uuid4()), 'name': 'No guardar'}], 'animals': [
+            {'id': str(uuid.uuid4()), 'tag': 'NI-NEW', 'sex': 'H', 'category': 'heifer'},
+            {'id': str(uuid.uuid4()), 'tag': 'NI-INVALID', 'sex': 'M', 'category': 'cow_dry'}]}
+        response = self.client.post('/api/sync/batch', payload, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(AnimalLot.objects.exists())
+        self.assertFalse(Animal.objects.filter(tag='NI-NEW').exists())
+
+    def test_operator_cannot_create_lots(self):
+        self.login()
+        response = self.client.post('/api/sync/batch', {'farm': str(self.farm.id), 'lots': [{'id': str(uuid.uuid4()), 'name': 'Denied'}]}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(AnimalLot.objects.exists())
+
+    def test_animal_cannot_join_a_lot_of_another_farm(self):
+        other = Farm.objects.create(name='Otra finca')
+        lot = AnimalLot.objects.create(farm=other, name='Privado')
+        self.login('boss')
+        response = self.client.post('/api/sync/batch', {'farm': str(self.farm.id), 'animals': [{'id': str(self.animal.id), 'tag': self.animal.tag, 'sex': 'H', 'category': 'cow_lactating', 'lot': str(lot.id)}]}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.animal.refresh_from_db()
+        self.assertIsNone(self.animal.lot)
+
+    def test_withdrawal_update_clears_old_end_date(self):
+        self.login('boss')
+        record_id = str(uuid.uuid4())
+        event = {'id': record_id, 'animal': str(self.animal.id), 'date': '2026-09-28', 'type': 'antibiotic', 'product': 'Prueba', 'withdrawal_days': 7}
+        payload = {'farm': str(self.farm.id), 'health_events': [event]}
+        self.assertEqual(self.client.post('/api/sync/batch', payload, format='json').status_code, 200)
+        self.assertIsNotNone(HealthEvent.objects.get(pk=record_id).withdrawal_end_date)
+        event['withdrawal_days'] = 0
+        self.assertEqual(self.client.post('/api/sync/batch', payload, format='json').status_code, 200)
+        self.assertIsNone(HealthEvent.objects.get(pk=record_id).withdrawal_end_date)
+    def test_refresh_rotates_both_auth_cookies(self):
+        response = self.login('boss')
+        old_refresh = response.cookies['ganaderia_refresh'].value
+        response = self.client.post('/api/auth/refresh')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn('ganaderia_refresh', response.cookies)
+        self.assertNotEqual(response.cookies['ganaderia_refresh'].value, old_refresh)
+
+    def test_create_user_rejects_existing_account_and_common_password(self):
+        self.login('boss')
+        for username, password in [('op1', 'ClaveCampo2026!A'), ('newperson', '12345678')]:
+            response = self.client.post('/api/manage/users', {'farm': str(self.farm.id), 'username': username, 'password': password, 'role': 'operator'}, format='json')
+            self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(User.objects.filter(username='newperson').exists())
+        response = self.client.post('/api/manage/users', {'farm': str(self.farm.id), 'username': 'newperson', 'password': 'ClaveCampo2026!A', 'role': 'operator'}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(FarmMembership.objects.filter(user__username='newperson',farm=self.farm,role='operator').exists())

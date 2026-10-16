@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
@@ -20,6 +20,7 @@ from apps.reproduction.models import (
 from .permissions import HasFarmMembership
 from .serializers import (
     AnimalSerializer,
+    AnimalLotSerializer,
     BrandSerializer,
     HealthEventSerializer,
     MilkingSerializer,
@@ -33,6 +34,7 @@ PULL_COLLECTIONS = {
     "owners": (Owner, OwnerSerializer),
     "brands": (Brand, BrandSerializer),
     "paddocks": (Paddock, PaddockSerializer),
+    "lots": (AnimalLot, AnimalLotSerializer),
     "animals": (Animal, AnimalSerializer),
     "weighings": (Weighing, WeighingSerializer),
     "milkings": (Milking, MilkingSerializer),
@@ -44,6 +46,7 @@ WRITE_COLLECTIONS = {
     "owners": (Owner, OwnerSerializer, FarmMembership.Role.ADMIN),
     "brands": (Brand, BrandSerializer, FarmMembership.Role.ADMIN),
     "paddocks": (Paddock, PaddockSerializer, FarmMembership.Role.ADMIN),
+    "lots": (AnimalLot, AnimalLotSerializer, FarmMembership.Role.TECHNICIAN),
     "animals": (Animal, AnimalSerializer, FarmMembership.Role.TECHNICIAN),
     "weighings": (Weighing, WeighingSerializer, FarmMembership.Role.OPERATOR),
     "milkings": (Milking, MilkingSerializer, FarmMembership.Role.OPERATOR),
@@ -60,7 +63,7 @@ WRITE_COLLECTIONS = {
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
-CATALOG_MODELS = (Animal, Owner, Brand, Paddock)
+CATALOG_MODELS = (Animal, AnimalLot, Owner, Brand, Paddock)
 
 ROLE_RANK = {
     FarmMembership.Role.OPERATOR: 1,
@@ -100,6 +103,8 @@ class SyncPullView(APIView):
 
 def _apply_computed_fields(model, validated):
     if model is ReproductiveEvent:
+        validated['estimated_calving_date'] = None
+        validated['suggested_drying_off_date'] = None
         if (
             validated.get("type") == ReproductiveEvent.Type.SERVICE
             and not validated.get("estimated_calving_date")
@@ -114,6 +119,7 @@ def _apply_computed_fields(model, validated):
                 "estimated_calving_date"
             ] - timedelta(days=DRYING_OFF_DAYS_BEFORE_CALVING)
     elif model is HealthEvent:
+        validated['withdrawal_end_date'] = None
         if validated.get("withdrawal_days") and not validated.get(
             "withdrawal_end_date"
         ):
@@ -162,7 +168,7 @@ class SyncBatchView(APIView):
                         data = {k: v for k, v in record.items() if k != "id"}
                         if model in CATALOG_MODELS:
                             data["farm"] = str(farm_id)
-                        serializer = serializer_class(data=data, context={"farm_id": farm_id})
+                        serializer = serializer_class(data=data, context={"farm_id": farm_id, "record_id": record_id})
                         if not serializer.is_valid():
                             collection_errors.append(
                                 {"id": record_id, "error": serializer.errors}

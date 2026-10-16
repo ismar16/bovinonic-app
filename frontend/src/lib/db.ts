@@ -42,6 +42,7 @@ export interface Animal {
 	mother: string | null;
 	father: string | null;
 	paddock: string | null;
+	lot?: string | null;
 	owner: string | null;
 	brand: string | null;
 	status: 'active' | 'sold' | 'dead' | 'culled';
@@ -100,6 +101,7 @@ export interface OutboxRecord {
 		| 'owners'
 		| 'brands'
 		| 'paddocks'
+		| 'lots'
 		| 'weighings'
 		| 'milkings'
 		| 'reproductive_events'
@@ -114,7 +116,16 @@ export interface SyncMeta {
 	value: string;
 }
 
+export interface AnimalLot {
+	id: string;
+	farm: string;
+	name: string;
+	description: string;
+	updated_at?: string;
+}
+
 class GanaderiaDB extends Dexie {
+	lots!: EntityTable<AnimalLot, 'id'>;
 	farms!: EntityTable<Farm, 'id'>;
 	owners!: EntityTable<Owner, 'id'>;
 	brands!: EntityTable<Brand, 'id'>;
@@ -141,6 +152,10 @@ class GanaderiaDB extends Dexie {
 			health_events: 'id, animal, date, type, updated_at',
 			outbox: '++id, collection, record_id, created_at',
 			sync_meta: 'key'
+		});
+		this.version(2).stores({
+			lots: 'id, farm, name, updated_at',
+			animals: 'id, farm, tag, status, lot, updated_at'
 		});
 	}
 }

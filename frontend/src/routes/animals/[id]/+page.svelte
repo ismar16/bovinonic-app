@@ -23,6 +23,7 @@
 	let notFound = $state(false);
 	let pending = $state(false);
 	let paddockName = $state('Sin asignar');
+	let lotName = $state('Sin lote');
 	let ownerName = $state('Sin asignar');
 	const canEdit = $derived(['admin','technician'].includes($currentFarm?.role ?? ''));
 
@@ -42,6 +43,7 @@
 			return;
 		}
 		pending = (await db.outbox.toArray()).some((r) => r.collection === 'animals' && r.record_id === found.id);
+		lotName = found.lot ? (await db.lots.get(found.lot))?.name ?? 'Sin datos' : 'Sin lote';
 		if (found.paddock) paddockName = (await db.paddocks.get(found.paddock))?.name ?? 'Sin asignar';
 		if (found.owner) ownerName = (await db.owners.get(found.owner))?.name ?? 'Sin asignar';
 		if (found.mother) mother = (await db.animals.get(found.mother)) ?? null;
@@ -65,7 +67,7 @@
 		healthEvents = allHealth.slice(0, 10);
 		const today = farmDate();
 		const active = allHealth
-			.filter((e) => e.withdrawal_days > 0)
+			.filter((e) => e.withdrawal_days > 0 && e.date <= today)
 			.map((e) => e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0))
 			.filter((end) => end >= today)
 			.sort()
@@ -156,7 +158,7 @@
 		</div>
 
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {#each [{label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
+            {#each [{label:'Lote',value:lotName}, {label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
         </div>
         <Tabs.Root value="general">
 			<Tabs.List class="grid h-auto min-h-11 w-full grid-cols-4">
@@ -169,7 +171,7 @@
 			<Tabs.Content value="general">
 				<div class="flex flex-col gap-4 pt-2">
 					<section class="panel p-5 sm:p-7">
-						<h2 class="mb-2 text-lg font-extrabold">Datos</h2>
+						<h2 class="section-title mb-3">Datos del animal</h2>{#if animal.lot}<a class="back-link" href="/lots/{animal.lot}">Ver lote: {lotName}</a>{/if}
 						{#if animal.birth_date}
 							<p><span class="font-bold">Nacimiento:</span> {animal.birth_date}</p>
 						{/if}
@@ -204,10 +206,10 @@
 			<Tabs.Content value="production">
 				<div class="flex flex-col gap-4 pt-2">
 					<section class="panel p-5 sm:p-7">
-						<h2 class="mb-2 text-lg font-extrabold">Pesajes</h2>
+						<h2 class="section-title mb-3">Pesajes</h2><a class="back-link" href="/weighing?animal={animal.id}">Registrar pesaje</a>
 						{#if weightCurve}
 							<svg viewBox="0 0 300 60" class="mb-2 w-full" role="img" aria-label="Curva de peso">
-								<polyline points={weightCurve.path} fill="none" stroke="black" stroke-width="2" />
+								<polyline points={weightCurve.path} fill="none" stroke="#31583c" stroke-width="2" />
 							</svg>
 							<p class="mb-2 flex justify-between text-xs font-bold">
 								<span>Mín {weightCurve.min} kg</span>
@@ -216,7 +218,7 @@
 						{/if}
 						<ul class="flex flex-col gap-1">
 							{#each weighings as w (w.id)}
-								<li class="flex justify-between">
+								<li class="flex flex-wrap justify-between gap-2">
 									<span>{w.date}</span>
 									<span class="font-extrabold">{w.weight_kg} kg</span>
 								</li>
@@ -226,10 +228,10 @@
 						</ul>
 					</section>
 					<section class="panel p-5 sm:p-7">
-						<h2 class="mb-2 text-lg font-extrabold">Ordeños</h2>
+						<h2 class="section-title mb-3">Ordeños</h2>{#if animal.category === 'cow_lactating'}<a class="back-link" href="/milking?animal={animal.id}">Registrar ordeño</a>{/if}
 						<ul class="flex flex-col gap-1">
 							{#each milkings as m (m.id)}
-								<li class="flex justify-between">
+								<li class="flex flex-wrap justify-between gap-2">
 									<span>{m.date} {m.shift}</span>
 									<span class="font-extrabold">{m.liters} L</span>
 								</li>
@@ -243,11 +245,11 @@
 
 			<Tabs.Content value="reproduction">
 				<section class="mt-2 rounded-xl border border-[#dde3d3] bg-white p-4">
-					<h2 class="mb-2 text-lg font-extrabold">Eventos reproductivos</h2>
+					<h2 class="section-title mb-3">Eventos reproductivos</h2>{#if canEdit && animal.sex === 'H'}<a class="back-link" href="/reproduction?animal={animal.id}">Registrar evento</a>{/if}
 					<ul class="flex flex-col gap-1">
 						{#each reproEvents as e (e.id)}
 							<li>
-								<div class="flex justify-between">
+								<div class="flex flex-wrap justify-between gap-2">
 									<span>{e.date}</span>
 									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}</span>
 								</div>
@@ -266,11 +268,11 @@
 
 			<Tabs.Content value="health">
 				<section class="mt-2 rounded-xl border border-[#dde3d3] bg-white p-4">
-					<h2 class="mb-2 text-lg font-extrabold">Eventos sanitarios</h2>
+					<h2 class="section-title mb-3">Eventos sanitarios</h2>{#if canEdit}<a class="back-link" href="/health?animal={animal.id}">Registrar atención</a>{/if}
 					<ul class="flex flex-col gap-1">
 						{#each healthEvents as e (e.id)}
 							<li>
-								<div class="flex justify-between">
+								<div class="flex flex-wrap justify-between gap-2">
 									<span>{e.date}</span>
 									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}: {e.product}</span>
 								</div>

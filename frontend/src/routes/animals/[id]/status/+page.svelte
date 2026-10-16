@@ -1,124 +1,19 @@
 <script lang="ts">
-	import { farmDate } from '$lib/dates';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
-	import { onMount } from 'svelte';
-
-	import { db, type Animal } from '$lib/db';
-	import { enqueue } from '$lib/sync';
-
-	const TARGET_STATUSES = [
-		{ value: 'sold', label: 'Vendido' },
-		{ value: 'dead', label: 'Muerto' },
-		{ value: 'culled', label: 'Descarte' },
-		{ value: 'active', label: 'Reactivar (activo)' }
-	] as const;
-
-	let animal = $state<Animal | null>(null);
-	let newStatus = $state<(typeof TARGET_STATUSES)[number]['value']>('sold');
-	let date = $state(farmDate());
-	let reason = $state('');
-	let saved = $state(false);
-	let notFound = $state(false);
-
-	onMount(async () => {
-		const id = page.params.id;
-		if (!id) {
-			await goto('/');
-			return;
-		}
-		const found = await db.animals.get(id);
-		if (!found) {
-			notFound = true;
-			return;
-		}
-		animal = found;
-	});
-
-	async function save() {
-		if (!animal) return;
-		await enqueue('animals', {
-			...animal,
-			status: newStatus,
-			status_changed_at: date,
-			status_reason: reason.trim()
-		});
-		saved = true;
-		const targetId = animal.id;
-		setTimeout(() => goto(`/animals/${targetId}`), 900);
-	}
+    import { onMount } from 'svelte';
+    import { page } from '$app/state';
+    import { db, type Animal } from '$lib/db';
+    import { currentFarm } from '$lib/stores';
+    import { farmDate } from '$lib/dates';
+    import { errorMessage, validDate } from '$lib/forms';
+    import { enqueue } from '$lib/sync';
+    import PageHeader from '$lib/components/PageHeader.svelte';
+    import Notice from '$lib/components/Notice.svelte';
+    const statuses = {active:'Activo',sold:'Vendido',dead:'Muerto',culled:'Descarte'};
+    let animal = $state<Animal | null>(null); let status = $state<Animal['status']>('sold'); let date = $state(farmDate()); let reason = $state(''); let error = $state(''); let loading = $state(true); let saving = $state(false); let saved = $state(false);
+    const canEdit = $derived(['admin','technician'].includes($currentFarm?.role ?? ''));
+    onMount(async () => { try { const found = await db.animals.get(page.params.id ?? ''); if (!found || found.farm !== $currentFarm?.id) throw new Error('Animal no disponible en la finca actual.'); animal = found; } catch(cause) { error = errorMessage(cause); } finally { loading = false; } });
+    async function save(event: SubmitEvent) { event.preventDefault(); if (!animal || saving || saved || !canEdit) return; saving = true; error = ''; try { if (!validDate(date) || date > farmDate() || (animal.birth_date && date < animal.birth_date)) throw new Error('Elegí una fecha válida entre el nacimiento del animal y hoy.'); await enqueue('animals',{...animal,status,status_changed_at:date,status_reason:reason.trim()}); saved = true; } catch(cause) { error = errorMessage(cause); } finally { saving = false; } }
 </script>
-
-<svelte:head><title>Cambio de estado {animal?.tag ?? ''} · Gestión Ganadera</title></svelte:head>
-
-<div class="record-form mt-5 flex flex-col gap-4">
-	{#if notFound}
-		<p class="rounded-md border-2 border-red-700 bg-red-50 p-4 font-bold text-red-700">
-			Animal no encontrado en este dispositivo.
-		</p>
-	{:else if animal}
-		<h1 class="text-2xl font-extrabold">Cambio de estado</h1>
-		<div class="rounded-md border-2 border-black p-4">
-			<p class="text-2xl font-extrabold">{animal.tag}</p>
-			<p>{animal.name || 'Sin nombre'} · estado actual: <span class="font-bold uppercase">{animal.status}</span></p>
-		</div>
-
-		<div class="grid grid-cols-2 gap-2">
-			{#each TARGET_STATUSES as s}
-				<button
-					type="button"
-					onclick={() => (newStatus = s.value)}
-					class="h-14 rounded-md border-2 border-black font-extrabold {newStatus === s.value
-						? s.value === 'active'
-							? 'bg-green-700 text-white'
-							: 'bg-red-700 text-white'
-						: 'bg-white'}"
-				>
-					{s.label}
-				</button>
-			{/each}
-		</div>
-
-		<label class="flex flex-col gap-1 font-bold">
-			Fecha del evento
-			<input
-				bind:value={date}
-				type="date"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-		</label>
-
-		<label class="flex flex-col gap-1 font-bold">
-			Motivo
-			<input
-				bind:value={reason}
-				placeholder="Ej. venta en feria, baja productividad…"
-				class="h-14 rounded-md border-2 border-black px-4 text-xl"
-			/>
-		</label>
-
-		{#if newStatus !== 'active'}
-			<p class="rounded-md border-2 border-yellow-600 bg-yellow-50 p-3 font-bold text-yellow-800">
-				El animal pasará a estado {TARGET_STATUSES.find((s) => s.value === newStatus)?.label}.
-				Los registros históricos se conservan.
-			</p>
-		{/if}
-
-		<button
-			type="button"
-			onclick={save}
-			disabled={saved || newStatus === animal.status}
-			class="h-14 w-full rounded-md bg-red-700 text-xl font-extrabold text-white disabled:opacity-50"
-		>
-			{saved ? 'Guardado ✓' : 'Confirmar cambio de estado'}
-		</button>
-	{/if}
-
-	<button
-		type="button"
-		onclick={() => goto(`/animals/${page.params.id}`)}
-		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
-	>
-		Cancelar
-	</button>
-</div>
+<svelte:head><title>Cambio de estado · Bovinonic</title></svelte:head>
+<div class="record-form mt-5 space-y-5"><PageHeader title="Cambiar estado del animal" eyebrow="Historial del hato" description="La venta, baja o reactivación cambia el inventario activo. Los registros históricos se conservan." backHref={`/animals/${page.params.id}`} backLabel="Volver a la ficha" /><Notice tone="error" message={error} />
+{#if loading}<p class="empty-state">Cargando ficha…</p>{:else if !canEdit}<Notice tone="warning" message="Esta acción requiere un técnico o administrador." />{:else if animal}<div class="form-section"><p class="text-lg font-semibold">{animal.tag} · {animal.name || 'Sin nombre'}</p><p class="field-help">Estado actual: {statuses[animal.status]}</p></div><form onsubmit={save} class="space-y-5"><fieldset class="space-y-5" disabled={saving || saved}><label class="field-label">Nuevo estado<select class="field" bind:value={status}>{#each Object.entries(statuses) as [value,label]}<option value={value}>{label}</option>{/each}</select></label><label class="field-label">Fecha del cambio<input type="date" class="field" bind:value={date} min={animal.birth_date ?? undefined} max={farmDate()} required /></label><label class="field-label">Motivo<input class="field" bind:value={reason} maxlength="255" placeholder="Descripción del cambio (opcional)" /></label><Notice tone="warning" message={`Al confirmar, ${animal.tag} pasará de ${statuses[animal.status]} a ${statuses[status]}. Su historial se mantiene.`} /></fieldset>{#if saved}<Notice tone="success" message="Cambio guardado en este dispositivo. Se enviará al sincronizar." />{/if}<div class="form-actions"><button type="submit" class="action-button" disabled={saving || saved || status === animal.status}>{saving ? 'Guardando…' : saved ? 'Cambio guardado' : 'Confirmar cambio de estado'}</button><a href={`/animals/${animal.id}`} class="quiet-button">{saved ? 'Ver ficha' : 'Cancelar'}</a></div></form>{/if}</div>

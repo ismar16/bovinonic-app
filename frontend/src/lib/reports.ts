@@ -97,17 +97,13 @@ export async function gmdAlerts(farmId: string): Promise<GmdAlertRow[]> {
 	const rows: GmdAlertRow[] = [];
 	for (const animal of animals) {
 		const list = (byAnimal.get(animal.id) ?? []).sort((a, b) =>
-			a.date < b.date ? -1 : 1
+			a.date.localeCompare(b.date) || (a.updated_at ?? '').localeCompare(b.updated_at ?? '')
 		);
 		if (list.length < 2) continue;
 		const last = list[list.length - 1];
-		const prev = list[list.length - 2];
-		const days = Math.max(
-			1,
-			Math.round(
-				(new Date(last.date).getTime() - new Date(prev.date).getTime()) / 86_400_000
-			)
-		);
+		const prev = [...list].reverse().find((row) => row.date < last.date);
+		if (!prev) continue;
+		const days = Math.round((Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000);
 		const gmd = (parseFloat(last.weight_kg) - parseFloat(prev.weight_kg)) / days;
 		if (gmd <= 0.1) {
 			rows.push({
@@ -126,7 +122,8 @@ export async function gmdAlerts(farmId: string): Promise<GmdAlertRow[]> {
 function toCsv(headers: string[], rows: (string | number | null)[][]): string {
 	const escape = (value: string | number | null) => {
 		if (value === null || value === undefined) return '';
-		const s = String(value);
+		const raw = String(value);
+		const s = typeof value === 'string' && /^[=+@\-\t\r]/.test(raw) ? `'${raw}` : raw;
 		return s.includes(',') || s.includes('"') || s.includes('\n')
 			? `"${s.replace(/"/g, '""')}"`
 			: s;
@@ -147,8 +144,9 @@ export function downloadCsv(filename: string, csv: string): void {
 export async function exportAnimalsCsv(farmId: string): Promise<void> {
 	const animals = await db.animals.where('farm').equals(farmId).toArray();
 	const byId = new Map(animals.map((a) => [a.id, a]));
+	const [lots, paddocks, owners, brands] = await Promise.all([db.lots.where('farm').equals(farmId).toArray(), db.paddocks.where('farm').equals(farmId).toArray(), db.owners.where('farm').equals(farmId).toArray(), db.brands.where('farm').equals(farmId).toArray()]);
 	const csv = toCsv(
-		['arete', 'nombre', 'sexo', 'categoria', 'estado', 'nacimiento', 'madre', 'padre'],
+		['arete', 'nombre', 'sexo', 'categoria', 'estado', 'nacimiento', 'madre', 'padre', 'lote', 'potrero', 'propietario', 'fierro'],
 		animals.map((a) => [
 			a.tag,
 			a.name,
@@ -157,7 +155,8 @@ export async function exportAnimalsCsv(farmId: string): Promise<void> {
 			a.status,
 			a.birth_date,
 			a.mother ? (byId.get(a.mother)?.tag ?? a.mother) : '',
-			a.father ? (byId.get(a.father)?.tag ?? a.father) : ''
+			a.father ? (byId.get(a.father)?.tag ?? a.father) : '',
+			lots.find((l) => l.id === a.lot)?.name ?? '', paddocks.find((p) => p.id === a.paddock)?.name ?? '', owners.find((o) => o.id === a.owner)?.name ?? '', brands.find((b) => b.id === a.brand)?.code ?? ''
 		])
 	);
 	downloadCsv('animales.csv', csv);

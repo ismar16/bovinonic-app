@@ -1,11 +1,12 @@
 from decimal import Decimal
+from django.utils import timezone
 
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, Brand, Owner, Paddock
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
 
@@ -24,7 +25,7 @@ class FarmScopedSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         farm_id = self.context.get("farm_id")
         if farm_id is not None:
-            for name in ("animal", "mother", "father", "paddock", "owner", "brand", "title_owner"):
+            for name in ("animal", "mother", "father", "paddock", "owner", "brand", "title_owner", "lot"):
                 field = self.fields.get(name)
                 if field is not None and field.queryset is not None:
                     field.queryset = field.queryset.filter(farm_id=farm_id)
@@ -53,12 +54,36 @@ class PaddockSerializer(serializers.ModelSerializer):
         validators = []
 
 
+class AnimalLotSerializer(FarmScopedSerializer):
+    class Meta:
+        model = AnimalLot
+        fields = ["id", "farm", "name", "description", "updated_at"]
+        read_only_fields = ["updated_at"]
+        validators = []
+
+
 class AnimalSerializer(FarmScopedSerializer):
+    def validate(self, attrs):
+        birth = attrs.get('birth_date')
+        if birth and birth > timezone.localdate():
+            raise serializers.ValidationError({'birth_date': 'El nacimiento no puede ser futuro.'})
+        changed = attrs.get('status_changed_at')
+        if changed and (changed > timezone.localdate() or (birth and changed < birth)):
+            raise serializers.ValidationError({'status_changed_at': 'La fecha debe estar entre el nacimiento y hoy.'})
+        sex, category = attrs.get('sex'), attrs.get('category')
+        if (sex == 'H' and category == 'bull') or (sex == 'M' and category in ('cow_lactating', 'cow_dry')):
+            raise serializers.ValidationError({'category': 'La categoría no corresponde al sexo.'})
+        for field, required_sex in (('mother', 'H'), ('father', 'M')):
+            parent = attrs.get(field)
+            if parent and (parent.sex != required_sex or str(parent.id) == str(self.context.get('record_id'))):
+                raise serializers.ValidationError({field: 'Revisá el sexo y la identificación del progenitor.'})
+        return attrs
+
     class Meta:
         model = Animal
         fields = [
             "id", "farm", "tag", "name", "sex", "category", "birth_date",
-            "mother", "father", "paddock", "owner", "brand", "status",
+            "mother", "father", "paddock", "owner", "brand", "lot", "status",
             "status_changed_at", "status_reason", "photo_url", "updated_at",
         ]
         read_only_fields = ["updated_at"]
@@ -76,6 +101,12 @@ class AnimalSerializer(FarmScopedSerializer):
 
 class AnimalEventSerializer(FarmScopedSerializer):
     historical_warning = serializers.SerializerMethodField()
+
+    def validate(self, attrs):
+        date, animal = attrs.get('date'), attrs.get('animal')
+        if date and (date > timezone.localdate() or (animal and animal.birth_date and date < animal.birth_date)):
+            raise serializers.ValidationError({'date': 'La fecha debe estar entre el nacimiento y hoy.'})
+        return attrs
 
     def get_historical_warning(self, obj):
         return obj.animal.status != Animal.Status.ACTIVE
@@ -99,6 +130,16 @@ class MilkingSerializer(AnimalEventSerializer):
 
 
 class ReproductiveEventSerializer(AnimalEventSerializer):
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if attrs['animal'].sex != 'H':
+            raise serializers.ValidationError({'animal': 'Seleccioná una hembra para este evento.'})
+        if attrs['type'] == 'service' and not attrs.get('service_method'):
+            raise serializers.ValidationError({'service_method': 'Indicá el método del servicio.'})
+        if attrs['type'] == 'palpation' and not attrs.get('palpation_result'):
+            raise serializers.ValidationError({'palpation_result': 'Indicá el resultado de la palpación.'})
+        return attrs
+
     class Meta:
         model = ReproductiveEvent
         fields = [
@@ -113,6 +154,7 @@ class ReproductiveEventSerializer(AnimalEventSerializer):
 
 
 class HealthEventSerializer(AnimalEventSerializer):
+    withdrawal_days = serializers.IntegerField(min_value=0, max_value=3650, required=False, default=0)
     class Meta:
         model = HealthEvent
         fields = [

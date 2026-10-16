@@ -32,24 +32,7 @@
 	});
 
 	onMount(async () => {
-		if (!getFarm()) {
-			try {
-				const user = await me();
-				sessionUser.set({ id: user.id, username: user.username });
-				availableFarms.set(
-					user.farms.map((f) => ({ id: f.farm, name: f.farm_name, role: f.role }))
-				);
-				if (user.farms.length === 0) {
-					ready = true;
-					return;
-				}
-				const first = user.farms[0];
-				currentFarm.set({ id: first.farm, name: first.farm_name, role: first.role });
-			} catch {
-				await goto('/login');
-				return;
-			}
-		}
+
 		await loadDashboard();
 		if ($online) void syncNow().then(loadDashboard);
 		ready = true;

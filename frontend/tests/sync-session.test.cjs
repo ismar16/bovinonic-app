@@ -52,7 +52,7 @@ function setup() {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'animals', 'weighings', 'milkings',
+  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'weighings', 'milkings',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -66,7 +66,7 @@ function setup() {
   const dependencies = {
     '$app/environment': { browser: true },
     'svelte/store': { get: (s) => s.value },
-    './api': api, './db': { db }, './stores': stores,
+    './api': api, './db': { db }, './stores': stores, './forms': load('forms', {}),
     '$app/navigation': { goto: async () => {} }
   };
   const sync = load('sync', dependencies);
@@ -115,10 +115,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v1', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v2', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v1')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v2')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -203,4 +203,75 @@ test('operators cannot queue animal edits that the API would reject', async () =
   assert.equal(await db.outbox.count(), 0);
   await sync.enqueue('weighings', { id: 'weight', animal: 'cow', weight_kg: '200' });
   assert.equal(await db.outbox.count(), 1);
+});
+const verifiedUser = { id: 1, username: 'boss', farms: [{ farm: 'farm-a', farm_name: 'A', role: 'admin' }] };
+test('lot and bulk writes retain their farm and upload lot before dependent animals', async () => {
+  const { sync, db, api } = setup();
+  await sync.enqueueMany([{ collection: 'lots', payload: { id: 'lot', name: 'Reemplazo' } }, ...Array.from({ length: 25 }, (_, i) => ({ collection: 'animals', payload: { id: `cow-${i}`, lot: 'lot' } }))]);
+  let calls = 0;
+  api.pushBatch = async (_farm, collections) => {
+    calls++;
+    if (calls === 1) assert.equal(collections.lots[0].id, 'lot');
+    for (const a of collections.animals) assert.equal(a.farm, 'farm-a');
+    return Object.fromEntries(Object.entries(collections).map(([name, rows]) => [name, rows.map(row => ({ id: row.id, status: 'created' }))]));
+  };
+  await sync.syncNow();
+  assert.equal(calls, 2); assert.equal(await db.outbox.count(), 0); assert.equal(await db.animals.count(), 25);
+});
+test('insufficient role rejects the entire local operation before writing', async () => {
+  const { sync, db, stores } = setup(); stores.currentFarm.set({ id: 'farm-a', role: 'operator' });
+  await assert.rejects(sync.enqueueMany([{ collection: 'weighings', payload: { id: 'w' } }, { collection: 'lots', payload: { id: 'lot' } }]), /rol/);
+  assert.equal(await db.outbox.count(), 0); assert.equal(await db.weighings.count(), 0);
+});
+test('recent verified session reopens offline without extending validity', async () => {
+  const { db, api, stores, dependencies } = setup(); const session = load('session', { ...dependencies, './sync': { syncNow: async () => {} } });
+  api.me = async () => verifiedUser; await session.restoreSession();
+  const snapshot = (await db.sync_meta.get('offline_session_v1')).value;
+  stores.sessionUser.set(null); stores.currentFarm.set(null); api.me = async () => { throw new TypeError('offline'); };
+  await session.restoreSession(); assert.equal(stores.currentFarm.value.id, 'farm-a'); assert.equal((await db.sync_meta.get('offline_session_v1')).value, snapshot);
+});
+test('expired offline verification and server rejection cannot reopen cached access', async () => {
+  const { db, api, dependencies } = setup(); const session = load('session', { ...dependencies, './sync': { syncNow: async () => {} } });
+  await db.sync_meta.put({ key: 'offline_session_v1', value: JSON.stringify({ user: verifiedUser, farmId: 'farm-a', verifiedAt: Date.now() - 15 * 86400000 }) });
+  api.me = async () => { throw new TypeError('offline'); }; await assert.rejects(session.restoreSession(), /internet/);
+  api.me = async () => { throw new api.ApiError('401'); }; await assert.rejects(session.restoreSession(), /401/);
+});
+test('switching accounts preserves the original user pending work', async () => {
+  const { db, dependencies, stores } = setup(); const session = load('session', { ...dependencies, './sync': { syncNow: async () => {} } });
+  await session.acceptUser(verifiedUser); await db.outbox.add({ record_id: 'cow' });
+  await assert.rejects(session.acceptUser({ ...verifiedUser, id: 2 }), /pendientes/); assert.equal(stores.sessionUser.value.id, 1); assert.equal(await db.outbox.count(), 1);
+});
+test('forms reject impossible dates and invalid numeric quantities', () => {
+  const { validDate, decimalValue } = load('forms', {}); assert.equal(validDate('2026-02-30'), false); assert.equal(validDate('2024-02-29'), true); assert.equal(decimalValue('12,50'), 12.5);
+  assert.equal(decimalValue('0', true), 0); for (const v of ['-1', 'NaN', 'Infinity', '2.123', '', '1e3', '0']) assert.throws(() => decimalValue(v));
+});
+function reportDeps(weighings = [], events = []) {
+  const dates = load('dates', {}); const animals = [{ id: 'cow', farm: 'farm-a', status: 'active', sex: 'H', category: 'cow_lactating' }];
+  const db = { animals: { where: () => ({ equals: () => ({ toArray: async () => animals }) }) }, weighings: { toArray: async () => weighings }, reproductive_events: { toArray: async () => events } };
+  return { './dates': dates, '$lib/dates': dates, './db': { db }, '$app/environment': { browser: true } };
+}
+test('weight alerts require distinct dates and use the latest updated reading per date', async () => {
+  let report = load('reports', reportDeps([{ animal: 'cow', date: '2026-10-01', weight_kg: '100' }, { animal: 'cow', date: '2026-10-01', weight_kg: '90' }]));
+  assert.deepEqual(await report.gmdAlerts('farm-a'), []);
+  report = load('reports', reportDeps([{ animal: 'cow', date: '2026-09-01', weight_kg: '100' }, { animal: 'cow', date: '2026-10-01', weight_kg: '110', updated_at: '2026-10-01T00:00:00Z' }, { animal: 'cow', date: '2026-10-01', weight_kg: '90', updated_at: '2026-10-01T02:00:00Z' }]));
+  const rows = await report.gmdAlerts('farm-a'); assert.equal(rows[0].lastWeight, 90); assert.equal(rows[0].days, 30);
+});
+test('calving, abortion and empty diagnoses cancel an old calving forecast', async () => {
+  const { farmDate, addDateDays } = load('dates', {}); const today = farmDate();
+  const service = { animal: 'cow', type: 'service', date: addDateDays(today, -270), estimated_calving_date: addDateDays(today, 13) };
+  for (const type of ['calving', 'abortion', 'palpation']) {
+    const report = load('alerts', reportDeps([], [service, { animal: 'cow', date: today, type, palpation_result: 'empty' }]));
+    assert.equal((await report.computeReproAlerts('farm-a')).calvingSoon.length, 0);
+  }
+});
+
+
+test('a temporary API failure does not permanently lock out manual or automatic retries', async () => {
+  const { sync, api, stores } = setup();
+  stores.online.set(false);
+  let retried = false;
+  api.pull = async () => { retried = true; stores.online.set(true); return { sync_cursor: 'recovered' }; };
+  await sync.syncNow();
+  assert.equal(retried, true);
+  assert.equal(stores.online.value, true);
 });

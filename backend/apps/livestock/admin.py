@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Animal, Brand, Owner, Paddock
+from .models import Animal, AnimalLot, Brand, Owner, Paddock
+
+
+@admin.register(AnimalLot)
+class AnimalLotAdmin(admin.ModelAdmin):
+    list_display = ("name", "farm", "description")
+    list_filter = ("farm",)
+    search_fields = ("name",)
 
 
 @admin.register(Owner)

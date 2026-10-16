@@ -11,7 +11,8 @@
 		{ href: '/milking', label: 'Ordeño', icon: Milk },
 		{ href: '/reproduction', label: 'Evento reproductivo', icon: HeartPulse },
 		{ href: '/health', label: 'Evento sanitario', icon: Syringe },
-		{ href: '/animals/new', label: 'Nuevo animal', icon: PlusCircle }
+		{ href: '/animals/new', label: 'Nuevo animal', icon: PlusCircle },
+		{ href: '/animals/bulk', label: 'Registrar varios animales', icon: PlusCircle }
 	];
 </script>
 
@@ -23,7 +24,7 @@
 		<Plus class="h-8 w-8" strokeWidth={2.5} />
 		<span class="hidden text-sm font-bold lg:inline">Registrar</span>
 	</Sheet.Trigger>
-	<Sheet.Content side="bottom" class="mx-auto w-full max-w-xl rounded-t-xl">
+	<Sheet.Content side="bottom" class="mx-auto w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-t-xl">
 		<Sheet.Header>
 			<Sheet.Title>Registro rápido</Sheet.Title>
 		</Sheet.Header>
@@ -32,7 +33,7 @@
 				<a
 					href={action.href}
 					onclick={() => (open = false)}
-					class="flex h-14 items-center gap-3 rounded-md border-2 border-black px-4 text-lg font-extrabold"
+					class="quiet-button min-h-12 w-full"
 				>
 					<action.icon class="h-6 w-6" />
 					{action.label}

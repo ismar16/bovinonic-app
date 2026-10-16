@@ -78,7 +78,7 @@ export async function me(): Promise<User> {
 	return response.json();
 }
 
-export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'animals' | 'weighings'
+export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'lots' | 'animals' | 'weighings'
 	| 'milkings' | 'reproductive_events' | 'health_events';
 
 export type PullResponse = Partial<Record<PullCollection, unknown[]>> & { sync_cursor?: string };

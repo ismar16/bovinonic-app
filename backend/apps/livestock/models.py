@@ -65,6 +65,21 @@ class Paddock(TimeStampedModel):
         return f"{self.name} ({self.farm})"
 
 
+class AnimalLot(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="lots", verbose_name=_("finca"))
+    name = models.CharField(_("nombre"), max_length=100)
+    description = models.CharField(_("descripción"), max_length=500, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["farm", "name"], name="uniq_lot_farm_name")]
+        indexes = [models.Index(fields=["farm", "updated_at"])]
+        verbose_name = _("lote de animales")
+        verbose_name_plural = _("lotes de animales")
+
+    def __str__(self):
+        return f"{self.name} ({self.farm})"
+
+
 class Animal(TimeStampedModel):
     class Sex(models.TextChoices):
         MALE = "M", _("Macho")
@@ -87,6 +102,7 @@ class Animal(TimeStampedModel):
         Farm, on_delete=models.CASCADE, related_name="animals", verbose_name=_("finca")
     )
     tag = models.CharField(_("arete"), max_length=50, unique=True, db_index=True)
+    lot = models.ForeignKey(AnimalLot, on_delete=models.SET_NULL, null=True, blank=True, related_name="animals", verbose_name=_("lote"))
     name = models.CharField(_("nombre"), max_length=150, blank=True)
     sex = models.CharField(_("sexo"), max_length=1, choices=Sex.choices)
     category = models.CharField(_("categoría"), max_length=20, choices=Category.choices)

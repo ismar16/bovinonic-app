@@ -1,50 +1,21 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
-
-	import { logoutAndWipe } from '$lib/session';
-	import { currentFarm, sessionUser } from '$lib/stores';
-
-	const links = [
-		{ href: '/reports', label: 'Reportes y exportación CSV', adminOnly: false },
-		{ href: '/catalogs', label: 'Catálogos (potreros, propietarios, fierros)', adminOnly: true },
-		{ href: '/users', label: 'Usuarios y roles', adminOnly: true }
-	];
-
-	onMount(() => {
-		if (!$currentFarm) void goto('/');
-	});
+    import { onMount } from 'svelte';
+    import { liveQuery } from 'dexie';
+    import { ArrowUpRight, RefreshCw, LogOut, User, Layers, BookOpen, Users } from 'lucide-svelte';
+    import { db, type OutboxRecord } from '$lib/db';
+    import { currentFarm, sessionUser, online, syncing, lastSyncResult, syncError, sessionNotice, sessionChanging } from '$lib/stores';
+    import { syncNow } from '$lib/sync';
+    import { logoutAndWipe } from '$lib/session';
+    import PageHeader from '$lib/components/PageHeader.svelte';
+    import Notice from '$lib/components/Notice.svelte';
+    let pending = $state<OutboxRecord[]>([]);
+    const roles: Record<string,string> = { admin:'Administrador', technician:'Técnico',operator:'Operador de corral' };
+    const collections: Record<string,string> = { animals:'Animales', owners:'Propietarios', brands:'Fierros',paddocks:'Potreros',lots:'Lotes',milkings:'Ordeños',weighings:'Pesajes',health_events:'Sanidad',reproductive_events:'Reproducción' };
+    onMount(() => { const subscription = liveQuery(() => db.outbox.toArray()).subscribe((rows) => pending = rows); return () => subscription.unsubscribe(); });
 </script>
-
-<svelte:head><title>Ajustes · Gestión Ganadera</title></svelte:head>
-
-<div class="flex flex-col gap-4 pt-4">
-	<h1 class="text-2xl font-extrabold">Ajustes</h1>
-
-	<section class="rounded-md border-2 border-black p-4">
-		<p class="text-sm text-neutral-600">Usuario</p>
-		<p class="text-xl font-extrabold">{$sessionUser?.username ?? '—'}</p>
-		<p class="mt-2 text-sm text-neutral-600">Finca</p>
-		<p class="font-bold">{$currentFarm?.name ?? '—'}</p>
-		<p class="mt-1 text-sm uppercase text-neutral-600">Rol: {$currentFarm?.role ?? '—'}</p>
-	</section>
-
-	{#each links as link (link.href)}
-		{#if !link.adminOnly || $currentFarm?.role === 'admin'}
-			<a
-				href={link.href}
-				class="flex h-14 items-center rounded-md border-2 border-black px-4 text-lg font-extrabold"
-			>
-				{link.label}
-			</a>
-		{/if}
-	{/each}
-
-	<button
-		type="button"
-		onclick={() => logoutAndWipe()}
-		class="h-14 w-full rounded-md bg-red-700 text-xl font-extrabold text-white"
-	>
-		Cerrar sesión
-	</button>
-</div>
+<svelte:head><title>Ajustes · Bovinonic</title></svelte:head>
+<div class="workspace-page space-y-6"><PageHeader title="Tu finca y tu cuenta" eyebrow="Ajustes" description="Administrá los datos comunes y comprobá qué registros faltan por enviar." />
+<div class="grid gap-5 lg:grid-cols-2"><section class="panel space-y-5 p-6"><User class="h-6 w-6 text-[#8a9f75]" /><h2 class="section-title">Sesión actual</h2><dl class="grid grid-cols-2 gap-4 text-sm"><div><dt class="eyebrow">Usuario</dt><dd class="mt-2">{$sessionUser?.username ?? 'Sin sesión'}</dd></div><div><dt class="eyebrow">Rol</dt><dd class="mt-2">{roles[$currentFarm?.role ?? ''] ?? 'Sin asignar'}</dd></div><div class="col-span-2"><dt class="eyebrow">Finca</dt><dd class="mt-2">{$currentFarm?.name ?? 'Sin finca asignada'}</dd></div></dl><p class="field-help">{$currentFarm?.role === 'operator' ? 'Podés consultar el hato y registrar ordeños y pesajes.' : $currentFarm?.role === 'technician' ? 'Podés actualizar animales, lotes y eventos productivos, sanitarios y reproductivos.' : 'Podés administrar usuarios y catálogos, además de registrar y consultar el hato.'}</p><button type="button" class="quiet-button" disabled={$sessionChanging || $syncing} onclick={() => logoutAndWipe()}><LogOut class="h-4 w-4" />Cerrar sesión</button><Notice tone="warning" message={$sessionNotice ?? ''} /></section>
+<section class="panel space-y-5 p-6"><RefreshCw class="h-6 w-6 text-[#8a9f75]" /><h2 class="section-title">Estado de los datos</h2><div class="flex items-end justify-between gap-3"><div><p class="stat-value">{pending.length}</p><p class="field-help">registros pendientes de envío</p></div><span class="status-pill {!$online ? 'pending' : ''}">{$online ? 'Con conexión' : 'Sin conexión'}</span></div><p class="field-help">Última sincronización de esta sesión: {$lastSyncResult ? new Date($lastSyncResult).toLocaleString('es-NI',{timeZone:'America/Managua'}) : 'Todavía no comprobada'}.</p><Notice tone="error" message={$syncError ?? ''} /><button type="button" class="action-button" disabled={$syncing} onclick={() => syncNow()}><RefreshCw class="h-4 w-4 {$syncing ? 'animate-spin' : ''}" />{$syncing ? 'Sincronizando…' : 'Sincronizar ahora'}</button><p class="field-help">Los registros sin enviar se conservan en este dispositivo. Para cambiar de finca o cerrar sesión, sincronizalos primero.</p></section></div>
+<section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{#each [{href:'/lots',title:'Lotes de animales',text:'Grupos de manejo y registro de varios animales.',icon:Layers,admin:false},{href:'/reports',title:'Reportes y exportación',text:'Consultá producción y descargá tus registros.',icon:BookOpen,admin:false},{href:'/catalogs',title:'Catálogos',text:'Potreros, propietarios y fierros, cada uno en su vista.',icon:BookOpen,admin:true},{href:'/users',title:'Usuarios de la finca',text:'Creá accesos y consultá sus permisos.',icon:Users,admin:true}] as item}{#if !item.admin || $currentFarm?.role === 'admin'}<a href={item.href} class="panel p-5"><div class="mb-4 flex items-center justify-between"><item.icon class="h-5 w-5 text-[#8a9f75]" /><ArrowUpRight class="h-4 w-4" /></div><h2 class="section-title">{item.title}</h2><p class="mt-2 field-help">{item.text}</p></a>{/if}{/each}</section>
+{#if pending.length}<section class="panel p-5"><h2 class="section-title">Pendientes en este dispositivo</h2><ul class="mt-4 divide-y">{#each pending.slice(0,20) as record}<li class="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span>{collections[record.collection]} · {record.payload.tag ?? record.payload.name ?? record.payload.code ?? String(record.payload.date ?? '')}</span><span class="status-pill pending">Por enviar</span></li>{/each}</ul>{#if pending.length > 20}<p class="field-help">Se muestran los primeros 20 pendientes.</p>{/if}</section>{/if}</div>

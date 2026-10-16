@@ -5,7 +5,7 @@
     import { onMount } from 'svelte';
     import { liveQuery } from 'dexie';
     import { Beef, Plus, Search, ArrowUpRight, Pencil, Download, SlidersHorizontal, X } from 'lucide-svelte';
-    import { db, type Animal, type Paddock } from '$lib/db';
+    import { db, type Animal, type Paddock, type AnimalLot } from '$lib/db';
     import { currentFarm } from '$lib/stores';
     import { exportAnimalsCsv } from '$lib/reports';
 
@@ -17,7 +17,7 @@
     let pending = $state<string[]>([]);
     let ready = $state(false);
     let category = $state('');
-    let paddock = $state('');
+    let paddock = $state(''); let lot = $state(''); let lots = $state<AnimalLot[]>([]);
     let status = $state('active');
     let sort = $state('tag');
     let error = $state('');
@@ -29,25 +29,25 @@
         if (!farm) { void goto('/'); return; }
         const subscription = liveQuery(async () => ({
             animals: await db.animals.where('farm').equals(farm.id).toArray(),
-            paddocks: await db.paddocks.where('farm').equals(farm.id).toArray(),
+            lots: await db.lots.where('farm').equals(farm.id).toArray(), paddocks: await db.paddocks.where('farm').equals(farm.id).toArray(),
             pending: (await db.outbox.toArray()).filter((r) => r.collection === 'animals').map((r) => r.record_id)
-        })).subscribe({ next(data) { animals = data.animals; paddocks = data.paddocks; pending = data.pending; ready = true; }, error() { error = 'No pudimos leer el hato en este dispositivo.'; } });
+        })).subscribe({ next(data) { lots = data.lots; animals = data.animals; paddocks = data.paddocks; pending = data.pending; ready = true; }, error() { error = 'No pudimos leer el hato en este dispositivo.'; } });
         return () => subscription.unsubscribe();
     });
     const filtered = $derived(animals.filter((a) => {
         const term = query.trim().toLowerCase();
-        return (!term || `${a.tag} ${a.name}`.toLowerCase().includes(term)) && (!category || a.category === category) && (!paddock || a.paddock === paddock) && (!status || a.status === status);
+        return (!term || `${a.tag} ${a.name}`.toLowerCase().includes(term)) && (!category || a.category === category) && (!paddock || a.paddock === paddock) && (!lot || a.lot === lot) && (!status || a.status === status);
     }).sort((a, b) => sort === 'recent' ? (b.updated_at ?? '').localeCompare(a.updated_at ?? '') : sort === 'name' ? a.name.localeCompare(b.name, 'es') : a.tag.localeCompare(b.tag, 'es', { numeric: true })));
     const active = $derived(animals.filter((a) => a.status === 'active').length);
     const lactating = $derived(animals.filter((a) => a.status === 'active' && a.category === 'cow_lactating').length);
-    function clearFilters() { query = ''; category = ''; paddock = ''; status = 'active'; }
+    function clearFilters() { query = ''; category = ''; paddock = ''; lot = ''; status = 'active'; }
 </script>
 
 <svelte:head><title>Mi hato · Bovinonic</title></svelte:head>
 <div class="workspace-page space-y-6">
     <header class="flex flex-wrap items-end justify-between gap-4">
         <div><p class="eyebrow">Inventario ganadero</p><h1 class="page-title mt-2">Conocé tu hato.</h1><p class="page-description">Buscá un animal, revisá su historia y mantené sus datos al día.</p></div>
-        <div class="flex gap-2"><button type="button" class="quiet-button" onclick={() => $currentFarm && exportAnimalsCsv($currentFarm.id)}><Download class="h-4 w-4" /> Exportar hato</button>{#if canEdit}<a href="/animals/new" class="action-button"><Plus class="h-4 w-4" /> Nuevo animal</a>{/if}</div>
+        <div class="flex flex-wrap gap-2"><a href="/lots" class="quiet-button">Lotes</a>{#if canEdit}<a href="/animals/bulk" class="quiet-button">Ingreso de varios</a>{/if}<button type="button" class="quiet-button" onclick={() => $currentFarm && exportAnimalsCsv($currentFarm.id)}><Download class="h-4 w-4" /> Exportar hato</button>{#if canEdit}<a href="/animals/new" class="action-button"><Plus class="h-4 w-4" /> Nuevo animal</a>{/if}</div>
     </header>
     <div class="grid grid-cols-3 gap-3">
         {#each [{ label: 'Animales activos', value: active }, { label: 'Vacas en ordeño', value: lactating }, { label: 'Cambios por enviar', value: pending.length }] as stat}
@@ -64,9 +64,10 @@
             <div class="flex-wrap items-center gap-2 {showFilters ? 'flex' : 'hidden sm:flex'}">
                 <SlidersHorizontal class="mr-1 h-4 w-4 text-[#8b9685]" />
                 <select bind:value={category} aria-label="Filtrar por categoría" class="field w-auto flex-1 sm:flex-none"><option value="">Todas las categorías</option>{#each Object.entries(categories) as [key, label]}<option value={key}>{label}</option>{/each}</select>
+                <select bind:value={lot} aria-label="Filtrar por lote" class="field w-auto flex-1 sm:flex-none"><option value="">Todos los lotes</option>{#each lots as l}<option value={l.id}>{l.name}</option>{/each}</select>
                 <select bind:value={paddock} aria-label="Filtrar por potrero" class="field w-auto flex-1 sm:flex-none"><option value="">Todos los potreros</option>{#each paddocks as p}<option value={p.id}>{p.name}</option>{/each}</select>
                 <select bind:value={status} aria-label="Filtrar por estado" class="field w-auto flex-1 sm:flex-none"><option value="">Todos los estados</option>{#each Object.entries(statuses) as [key, label]}<option value={key}>{label}</option>{/each}</select>
-                {#if query || category || paddock || status !== 'active'}<button type="button" class="quiet-button border-0" onclick={clearFilters}><X class="h-3 w-3" /> Limpiar</button>{/if}
+                {#if query || category || paddock || lot || status !== 'active'}<button type="button" class="quiet-button border-0" onclick={clearFilters}><X class="h-3 w-3" /> Limpiar</button>{/if}
             </div>
         </div>
         {#if error}<p role="alert" class="p-6 text-red-700">{error}</p>{:else if !ready}<p class="p-10 text-center text-sm text-[#7b8577]">Cargando el hato…</p>{:else}

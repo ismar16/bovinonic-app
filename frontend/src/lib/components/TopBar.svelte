@@ -73,9 +73,9 @@
 		<input bind:value={query} aria-label="Buscar un animal" placeholder="Buscar arete o nombre…" class="h-10 w-full bg-transparent text-xs outline-none" />
 	</form>
 	<div class="flex shrink-0 items-center gap-2">
-		<button type="button" onclick={() => syncNow()} disabled={!$online || $syncing || $sessionChanging}
+		<button type="button" onclick={() => syncNow()} disabled={$syncing || $sessionChanging}
 			class="flex min-h-10 items-center gap-2 rounded-lg border bg-white px-3 text-xs font-medium text-[#596c5c] disabled:opacity-60"
-			title="Comprobar y sincronizar datos">
+			title={$online ? 'Comprobar y sincronizar datos' : 'Reintentar conexión y sincronización'}>
 			<RefreshCw class="h-3.5 w-3.5 {$syncing ? 'animate-spin' : ''}" />
 			<span class="hidden sm:inline">{statusLabel}</span>
 			<span class="sm:hidden">{$pendingCount ? $pendingCount : 'Sync'}</span>
@@ -98,7 +98,7 @@
 	<div role="alert" class="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 lg:px-8">
 		{$sessionNotice}
 		{#if $pendingCount > 0}
-			<button type="button" disabled={!$online || $syncing} onclick={() => syncNow()}
+			<button type="button" disabled={$syncing} onclick={() => syncNow()}
 				class="ml-2 underline disabled:opacity-50">Sincronizar ahora</button>
 		{/if}
 	</div>

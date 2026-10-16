@@ -37,7 +37,7 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 
 	const eventsByAnimal = new Map<string, ReproductiveEvent[]>();
 	for (const e of events) {
-		if (!animalMap.has(e.animal)) continue;
+		if (!animalMap.has(e.animal) || e.date > today) continue;
 		const list = eventsByAnimal.get(e.animal) ?? [];
 		list.push(e);
 		eventsByAnimal.set(e.animal, list);
@@ -52,9 +52,7 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 		const animal = animalMap.get(animalId);
 		if (!animal) continue;
 
-		const lastService = [...list]
-			.reverse()
-			.find((e) => e.estimated_calving_date);
+		const lastService = [...list].reverse().find((e) => e.type === 'service' || e.type === 'calving' || e.type === 'abortion' || (e.type === 'palpation' && e.palpation_result === 'empty'));
 		if (lastService?.estimated_calving_date) {
 			const days = daysBetween(today, lastService.estimated_calving_date);
 			if (days >= 0 && days <= CALVING_WINDOW_DAYS) {
@@ -65,7 +63,7 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 				});
 			}
 		}
-		if (lastService?.suggested_drying_off_date) {
+		if (lastService?.suggested_drying_off_date && !list.some((e) => e.type === 'drying_off' && e.date >= lastService.date)) {
 			const days = daysBetween(today, lastService.suggested_drying_off_date);
 			if (days >= 0 && days <= DRYING_OFF_WINDOW_DAYS) {
 				dryingOffSoon.push({
@@ -88,12 +86,8 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 		);
 		const lastCalving = [...list].reverse().find((e) => e.type === 'calving');
 		if (!lastCalving) continue;
-		const pregnantAfter = list.some(
-			(e) =>
-				e.date > lastCalving.date &&
-				e.type === 'palpation' &&
-				e.palpation_result === 'pregnant'
-		);
+		const lastDiagnosis = [...list].reverse().find((e) => e.date > lastCalving.date && (e.type === 'palpation' || e.type === 'abortion'));
+		const pregnantAfter = lastDiagnosis?.type === 'palpation' && lastDiagnosis.palpation_result === 'pregnant';
 		if (pregnantAfter) continue;
 		const open = daysBetween(lastCalving.date, today);
 		if (open > DAYS_OPEN_THRESHOLD) {
@@ -117,12 +111,12 @@ export async function computeWithdrawalCount(farmId: string): Promise<number> {
 	if (!browser) return 0;
 	const today = farmDate();
 	const animals = await db.animals.where('farm').equals(farmId).toArray();
-	const animalIds = new Set(animals.map((a) => a.id));
+	const animalIds = new Set(animals.filter((a) => a.status === 'active').map((a) => a.id));
 	const events = await db.health_events.toArray();
 	const active = new Set<string>();
 	for (const e of events) {
 		if (!animalIds.has(e.animal)) continue;
-		if (!e.withdrawal_days) continue;
+		if (!e.withdrawal_days || e.date > today) continue;
 		const end =
 			e.withdrawal_end_date ?? addDateDays(e.date, e.withdrawal_days ?? 0);
 		if (end >= today) active.add(e.animal);

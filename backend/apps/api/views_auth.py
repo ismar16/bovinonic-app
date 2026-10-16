@@ -62,7 +62,7 @@ class RefreshView(APIView):
         except (TokenError, InvalidToken) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
         response = Response({"detail": "ok"})
-        set_auth_cookies(response, serializer.validated_data["access"])
+        set_auth_cookies(response, serializer.validated_data["access"], serializer.validated_data.get("refresh"))
         return response
 
 

@@ -3,10 +3,10 @@
 	import { page } from '$app/state';
 	import { Bell, Beef, ChartNoAxesCombined, ClipboardList, Home, Settings } from 'lucide-svelte';
 	import { onMount } from 'svelte';
+	import { liveQuery } from 'dexie';
 
 	import { computeReproAlerts } from '$lib/alerts';
 	import { alertCount, currentFarm, online } from '$lib/stores';
-	import { syncNow } from '$lib/sync';
 
 	const items = [
 		{ href: '/', label: 'Inicio', icon: Home },
@@ -31,14 +31,14 @@
 	}
 
 	onMount(() => {
-		void refreshAlertCount();
-		const unsubscribe = currentFarm.subscribe(() => void refreshAlertCount());
-		const interval = setInterval(() => {
-			if ($online) void syncNow().then(refreshAlertCount);
-		}, 60_000);
+		let query: { unsubscribe(): void } | undefined;
+		const unsubscribe = currentFarm.subscribe(() => {
+			query?.unsubscribe();
+			query = liveQuery(refreshAlertCount).subscribe({ error() { alertCount.set(0); } });
+		});
 		return () => {
 			unsubscribe();
-			clearInterval(interval);
+			query?.unsubscribe();
 		};
 	});
 </script>
@@ -53,7 +53,7 @@
 	</a>
 	{#each items as item (item.href)}
 		{@const active = item.href === '/' ? path === '/' : item.href === '/herd'
-			? path.startsWith('/herd') || path.startsWith('/animals/')
+			? path.startsWith('/herd') || path.startsWith('/animals/') || path.startsWith('/lots')
 			: item.href === '/operations' ? ['/operations', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
 			: path.startsWith(item.href)}
 		<a
@@ -74,6 +74,7 @@
 			{/if}
 		</a>
 	{/each}
+	<a href="/lots" class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold text-white/60 hover:bg-white/5 lg:flex"><Beef class="h-6 w-6" /> Lotes de animales</a>
 	<a href="/reports" aria-current={path.startsWith('/reports') ? 'page' : undefined}
 		class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/reports') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}">
 		<ChartNoAxesCombined class="h-6 w-6" /> Reportes

@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 
+import { errorMessage } from './forms';
 import { ApiError, pull, pushBatch } from './api';
 import { db, type OutboxRecord } from './db';
 import { currentFarm, lastSyncResult, online, pendingCount, sessionChanging, syncError, syncing, syncWarnings } from './stores';
@@ -9,6 +10,7 @@ const PULL_TABLES = [
 	'owners',
 	'brands',
 	'paddocks',
+	'lots',
 	'animals',
 	'weighings',
 	'milkings',
@@ -17,7 +19,7 @@ const PULL_TABLES = [
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v1';
+const LAST_PULL_KEY = 'last_pull_server_at_v2';
 const CHUNK_SIZE = 20;
 
 export async function refreshPendingCount(): Promise<void> {
@@ -25,34 +27,43 @@ export async function refreshPendingCount(): Promise<void> {
 	pendingCount.set(await db.outbox.count());
 }
 
-export async function enqueue(
-	collection: OutboxRecord['collection'],
-	payload: Record<string, unknown> & { id: string }
-): Promise<void> {
-	const farm = get(currentFarm);
-	if (!farm) throw new Error('Seleccioná una finca antes de guardar.');
-	const roles: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
-	const minimum = ['owners', 'brands', 'paddocks'].includes(collection) ? 3
-		: ['animals', 'reproductive_events', 'health_events'].includes(collection) ? 2 : 1;
-	if ((roles[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
-	const localPayload = ['animals', 'owners', 'brands', 'paddocks'].includes(collection)
-		? { ...payload, farm: farm.id } : payload;
-	await db.transaction('rw', db.outbox, db[collection], async () => {
-		if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
-		await db[collection].put(localPayload as never);
-		await db.outbox.add({
-			collection,
-			record_id: payload.id,
-			payload: localPayload,
-			created_at: new Date().toISOString()
-		});
-	});
-	await refreshPendingCount();
+export interface PendingWrite {
+    collection: OutboxRecord['collection'];
+    payload: Record<string, unknown> & { id: string };
+}
+
+export async function enqueue(collection: PendingWrite['collection'], payload: PendingWrite['payload']): Promise<void> {
+    await enqueueMany([{ collection, payload }]);
+}
+
+/** Save a whole local operation or nothing: lots and bulk entry cannot be half-saved. */
+export async function enqueueMany(records: PendingWrite[]): Promise<void> {
+    const farm = get(currentFarm);
+    if (!farm) throw new Error('Seleccioná una finca antes de guardar.');
+    if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
+    const rank: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
+    const normalized = records.map(({ collection, payload }) => {
+        const minimum = ['owners','brands','paddocks'].includes(collection) ? 3
+            : ['animals','lots','reproductive_events','health_events'].includes(collection) ? 2 : 1;
+        if ((rank[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
+        const catalog = ['animals','lots','owners','brands','paddocks'].includes(collection);
+        return { collection, payload: catalog ? { ...payload, farm: farm.id } : payload };
+    });
+    const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];
+    await db.transaction('rw', tables, async () => {
+        if (get(sessionChanging) || get(currentFarm)?.id !== farm.id) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
+        for (const { collection, payload } of normalized) {
+            await db[collection].put(payload as never);
+            await db.outbox.add({ collection, record_id: payload.id, payload, created_at: new Date().toISOString() });
+        }
+    });
+    await refreshPendingCount();
 }
 
 export async function syncNow(): Promise<{ pushed: number; warnings: string[] }> {
 	const farm = get(currentFarm);
-	if (!farm || !get(online) || get(syncing) || get(sessionChanging)) {
+	// The last API failure is not a permanent offline lock: allow retries.
+	if (!farm || get(syncing) || get(sessionChanging)) {
 		return { pushed: 0, warnings: [] };
 	}
 	syncing.set(true);
@@ -124,11 +135,7 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 		syncWarnings.set(warnings);
 	} catch (error) {
 		if (error instanceof ApiError) {
-			const detail =
-				error.body && typeof error.body === 'object' && 'detail' in error.body
-					? String((error.body as { detail: unknown }).detail)
-					: `Error del servidor (${error.statusCode})`;
-			syncError.set(detail);
+			syncError.set(errorMessage(error, `Error del servidor (${error.statusCode})`));
 		} else if (error instanceof TypeError) {
 			syncError.set(null);
 		} else {
