@@ -110,12 +110,41 @@ def normalize_sale(attrs, farm_id, existing=None, accept_loss=False):
     return attrs
 
 
+def effective_sale_lines(sale, extra=None):
+    """Derive current balances from the original receipt plus append-only expenses."""
+    adjustments = list(sale.expense_adjustments.order_by('created_at', 'id').values('id', 'animal_id', 'date', 'concept', 'amount', 'paid_by', 'created_at'))
+    if extra:
+        adjustments.append(extra)
+    lines = deepcopy(sale.lines)
+    for line in lines:
+        added = [{'id': str(e.get('id', 'preview')), 'animal': str(e['animal_id']), 'date': e['date'].isoformat(),
+                  'concept': e['concept'], 'amount': money(e['amount']), 'paid_by': e['paid_by'],
+                  'created_at': e['created_at'].isoformat() if e.get('created_at') else None}
+                 for e in adjustments if str(e['animal_id']) == line['animal']]
+        line['subsequent_expenses'] = added
+        costs = line.get('allocated_expenses', []) + line['expenses'] + added
+        line['expenses_total'] = money(sum((Decimal(e['amount']) for e in costs), Decimal(0)))
+        line['net_after_expenses'] = money(Decimal(line['value']) - Decimal(line['expenses_total']))
+        if not added:
+            continue
+        line['original_settlement'] = deepcopy(line.get('settlement'))
+        if line.get('agreement'):
+            row = {'animal': line['animal'], 'initial_weight': line.get('initial_weight'),
+                   'final_weight': line['weight_kg'], 'price_per_kg': line['price_per_kg']}
+            line['settlement'] = calculate_settlement(line['kind'], [row], [{**e, 'animal': line['animal']} for e in costs], line['owner_share'])
+    return lines
+
+
 def apply_sale(sale):
     Animal.objects.filter(farm_id=sale.farm_id, pk__in=[r['animal'] for r in sale.lines]).update(
         status='sold', status_changed_at=sale.date, status_reason=f'Venta a {sale.buyer}', updated_at=timezone.now())
+    refresh_sale_agreements(sale)
+
+
+def refresh_sale_agreements(sale):
     for agreement_id in {r['agreement'] for r in sale.lines if r.get('agreement')}:
         agreement = AnimalAgreement.objects.get(pk=agreement_id, farm_id=sale.farm_id)
-        receipts = [line for record in AnimalSale.objects.filter(farm_id=sale.farm_id).order_by('date', 'id') for line in record.lines if line.get('agreement') == agreement_id]
+        receipts = [line for record in AnimalSale.objects.filter(farm_id=sale.farm_id).order_by('date', 'id') for line in effective_sale_lines(record) if line.get('agreement') == agreement_id]
         sold = {r['animal']: r for r in receipts}
         dates = {line['animal']: record.date.isoformat() for record in AnimalSale.objects.filter(farm_id=sale.farm_id) for line in record.lines if line.get('agreement') == agreement_id}
         agreement.animals = [{**row, **({'final_weight': sold[row['animal']]['weight_kg'], 'price_per_kg': sold[row['animal']]['price_per_kg'], 'final_date': dates[row['animal']]} if row['animal'] in sold else {})} for row in agreement.animals]

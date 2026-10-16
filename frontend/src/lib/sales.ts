@@ -1,9 +1,42 @@
-import type { AnimalAgreement, AnimalSale, SaleLine } from './db';
+import type { AnimalAgreement, AnimalSale, SaleLine, SaleExpense } from './db';
 import { agreementSettlement, decimal, rounded, units } from './agreements';
 import { validDate } from './forms';
 import { farmDate } from './dates';
 
 export const paymentMethods = { cash: 'Efectivo', transfer: 'Transferencia', other: 'Otro' };
+
+/** Rebuild from receipt terms, never subtract expenses from an already adjusted balance. */
+export function saleWithExpenses(input: AnimalSale, expenses: SaleExpense[]): AnimalSale {
+	const sale = structuredClone(input);
+	for (const line of sale.lines) {
+		const merged = new Map((line.subsequent_expenses ?? []).map((e) => [e.id,e]));
+		for (const e of expenses) if (e.sale === sale.id && e.animal === line.animal) merged.set(e.id,e);
+		line.subsequent_expenses = [...merged.values()].sort((a,b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+		const costs = [...line.allocated_expenses ?? [],...line.expenses,...line.subsequent_expenses];
+		const total = costs.reduce((sum,e) => sum + units(e.amount,1n),0n);
+		line.expenses_total = decimal(total);
+		line.net_after_expenses = decimal(units(line.value ?? '0') - total);
+		if (!line.agreement || !line.subsequent_expenses.length) continue;
+		line.settlement = agreementSettlement({ kind:line.kind, owner_share:line.owner_share,
+			animals:[{animal:line.animal,initial_weight:line.initial_weight,final_weight:line.weight_kg,price_per_kg:line.price_per_kg}],
+			expenses:costs.map((e) => ({...e,animal:line.animal}))
+		} as AnimalAgreement);
+	}
+	return sale;
+}
+
+export function validateSaleExpense(input: SaleExpense, sale: AnimalSale, existing: SaleExpense[]): SaleExpense {
+	const expense = structuredClone(input);
+	const line = sale.lines.find((r) => r.animal === expense.animal);
+	if (!line || expense.sale !== sale.id || expense.farm !== sale.farm) throw new Error('Seleccioná un animal de esta venta.');
+	expense.concept = expense.concept.trim(); expense.amount = decimal(units(expense.amount,1n));
+	if (!expense.concept || expense.concept.length > 200) throw new Error('Indicá un concepto de hasta 200 caracteres.');
+	if (!validDate(expense.date) || expense.date > farmDate()) throw new Error('Indicá una fecha de gasto válida, no futura.');
+	if (!['owner','partner'].includes(expense.paid_by) || (!line.agreement && expense.paid_by !== 'owner')) throw new Error('Revisá quién pagó el gasto.');
+	const revised = saleWithExpenses(sale,[...existing.filter((e) => e.id !== expense.id),expense]).lines.find((r) => r.animal === expense.animal)!;
+	if (Number(revised.settlement?.net_gain ?? 0) < 0 && expense.accept_loss !== true) throw new Error('Confirmá el reparto de las pérdidas para agregar este gasto.');
+	return expense;
+}
 
 export function allocatedExpenses(agreement: AnimalAgreement, animal: string) {
 	const index = agreement.animals.findIndex((r) => r.animal === animal);

@@ -151,3 +151,12 @@ Verificación:
 - Datos exclusivamente ficticios en API de prueba aislada. No se modificó la base de producción ni se desplegó esta entrega.
 
 Límites de esta entrega: ventas por kg, sin facturación fiscal, conversión monetaria ni anulaciones de ventas o abonos confirmados. El historial previo marcado como vendido se conserva sin inventar importes retroactivos. Ver PLAN_VENTAS.md para alcance y recorrido.
+
+
+## Gastos posteriores — 16/10/2026
+
+Se añadió SaleExpense como registro independiente sincronizable y limitado al administrador. La migración livestock.0007 crea la tabla sin alterar ventas existentes. Las liquidaciones se recalculan desde las condiciones originales y los gastos acumulados; se conservan el comprobante original, abonos y saldo del comprador. Cada nuevo gasto actualiza el marcador de la venta y del acuerdo para la descarga incremental. Se admiten gastos olvidados anteriores a la venta. Se mantiene la protección de registros confirmados y la revisión de pendientes.
+
+Validación: 60 pruebas backend y 45 frontend correctas; Svelte/TypeScript sin errores ni advertencias. Pruebas de atomicidad, reintentos, inmutabilidad, pertenencia a la venta y finca, permisos, pérdida con confirmación estricta, gastos pagados por ambas partes, venta propia, pasto alquilado y acuerdos parciales/cerrados. Se verificó que una descarga de un comprobante ya ajustado no vuelve a descontar los mismos gastos.
+
+Navegador con SQLite en memoria: venta DEMO confirmada de 280 kg × C$100 = C$28,000, abono C$10,000 y saldo C$18,000. Se agregó un gasto posterior de medicamentos por C$1,000 pagado por el propietario: ganancia neta C$9,000, propietario C$23,500 y responsable C$4,500. Confirmado automáticamente, con historial; el acuerdo cerrado reflejó los nuevos importes y el abono/saldo permanecieron iguales. Formulario de móvil a 320 px sin desbordamiento; la confirmación de pérdidas se desmarca al modificar el importe.

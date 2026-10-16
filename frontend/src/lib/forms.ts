@@ -3,7 +3,7 @@ export function errorMessage(error: unknown, fallback = 'No se pudo guardar. Tus
 	if (error && typeof error === 'object' && 'body' in error) {
 		const body = error.body as { detail?: string; errors?: Record<string, unknown> } | null;
 		if (body?.errors && Object.keys(body.errors).length) {
-			const names: Record<string, string> = { animals: 'Animales', lots: 'Lotes', agreements: 'Acuerdos', sales: 'Ventas', sale_payments: 'Cobros', owners: 'Propietarios', paddocks: 'Potreros', brands: 'Fierros', milkings: 'Ordeños', weighings: 'Pesajes', health_events: 'Sanidad', reproductive_events: 'Reproducción' };
+			const names: Record<string, string> = { animals: 'Animales', lots: 'Lotes', agreements: 'Acuerdos', sales: 'Ventas', sale_payments: 'Cobros', sale_expenses: 'Gastos de venta', owners: 'Propietarios', paddocks: 'Potreros', brands: 'Fierros', milkings: 'Ordeños', weighings: 'Pesajes', health_events: 'Sanidad', reproductive_events: 'Reproducción' };
 			return Object.entries(body.errors).slice(0, 3).map(([collection, problems]) => {
 				const rows = Array.isArray(problems) ? problems : [problems];
 				const detail = rows.slice(0, 2).map((row) => row && typeof row === 'object' && 'error' in row ? JSON.stringify(row.error) : String(row)).join('; ');

@@ -8,7 +8,7 @@ from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
 from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import ReproductiveEvent
@@ -307,6 +307,12 @@ class FarmMembershipSerializer(serializers.ModelSerializer):
 
 
 class AnimalSaleSerializer(FarmScopedSerializer):
+    def to_representation(self, instance):
+        from apps.livestock.sales import effective_sale_lines
+        result = super().to_representation(instance)
+        result['lines'] = effective_sale_lines(instance)
+        return result
+
     class Meta:
         model = AnimalSale
         fields = ['id', 'farm', 'date', 'buyer', 'buyer_phone', 'currency', 'notes', 'lines', 'total', 'updated_at']
@@ -352,4 +358,39 @@ class SalePaymentSerializer(FarmScopedSerializer):
             paid = sum((p.amount for p in sale.payments.all()), Decimal(0))
             if paid + attrs['amount'] > sale.total:
                 raise serializers.ValidationError('El abono supera el saldo pendiente de esta venta.')
+        return attrs
+
+
+class SaleExpenseSerializer(FarmScopedSerializer):
+    amount = serializers.DecimalField(max_digits=11, decimal_places=2, min_value=Decimal('.01'))
+
+    class Meta:
+        model = SaleExpense
+        fields = ['id', 'farm', 'sale', 'animal', 'date', 'concept', 'amount', 'paid_by', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate(self, attrs):
+        from apps.livestock.sales import effective_sale_lines
+        sale, animal = attrs['sale'], attrs['animal']
+        if sale.farm_id != self.context['farm_id'] or animal.farm_id != self.context['farm_id']:
+            raise serializers.ValidationError('La venta y el animal deben pertenecer a esta finca.')
+        line = next((r for r in sale.lines if r['animal'] == str(animal.id)), None)
+        if not line:
+            raise serializers.ValidationError('Seleccioná un animal incluido en esta venta.')
+        if attrs['date'] > timezone.localdate() or (animal.birth_date and attrs['date'] < animal.birth_date):
+            raise serializers.ValidationError('La fecha del gasto debe estar entre el nacimiento y hoy.')
+        if not line.get('agreement') and attrs['paid_by'] != 'owner':
+            raise serializers.ValidationError('Sin acuerdo, el gasto corresponde al propietario.')
+        try:
+            existing = SaleExpense.objects.filter(pk=UUID(str(self.context['record_id']))).first()
+        except ValueError:
+            raise serializers.ValidationError('Identificador de gasto inválido.')
+        if existing:
+            if any(getattr(existing, k) != v for k, v in attrs.items()):
+                raise serializers.ValidationError('Un gasto confirmado no se puede modificar. Se conserva en el historial.')
+            return attrs
+        extra = {**attrs, 'animal_id': animal.id}
+        calculated = next(r for r in effective_sale_lines(sale, extra) if r['animal'] == str(animal.id))
+        if Decimal((calculated.get('settlement') or {}).get('net_gain', '0')) < 0 and self.initial_data.get('accept_loss') is not True:
+            raise serializers.ValidationError('El gasto deja una pérdida. Confirmá expresamente su reparto para guardarlo.')
         return attrs

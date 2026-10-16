@@ -18,11 +18,12 @@ const PULL_TABLES = [
 	'reproductive_events',
 	'health_events',
 	'sales',
-	'sale_payments'
+	'sale_payments',
+	'sale_expenses'
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v4';
+const LAST_PULL_KEY = 'last_pull_server_at_v5';
 const CHUNK_SIZE = 20;
 const SAVE_SYNC_DELAY_MS = 1500;
 const savedListeners = new Set<() => void>();
@@ -33,7 +34,7 @@ export async function refreshPendingCount(): Promise<void> {
 }
 
 /** Resolve a lost response before correcting a pending immutable financial record. */
-export async function reviewFinancialPending(collection: 'sales' | 'sale_payments', id: string): Promise<boolean> {
+export async function reviewFinancialPending(collection: 'sales' | 'sale_payments' | 'sale_expenses', id: string): Promise<boolean> {
 	const farm = get(currentFarm);
 	if (!farm || farm.role !== 'admin') throw new Error('Esta acción requiere un administrador.');
 	if (get(syncing) || get(sessionChanging)) throw new Error('Esperá a que termine la sincronización y volvé a revisar.');
@@ -67,17 +68,17 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
     if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
     const rank: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
     const normalized = records.map(({ collection, payload }) => {
-        const minimum = ['owners','brands','paddocks','agreements','sales','sale_payments'].includes(collection) ? 3
+        const minimum = ['owners','brands','paddocks','agreements','sales','sale_payments','sale_expenses'].includes(collection) ? 3
             : ['animals','lots','reproductive_events','health_events'].includes(collection) ? 2 : 1;
         if ((rank[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
-        const catalog = ['animals','lots','owners','brands','paddocks','agreements','sales','sale_payments'].includes(collection);
+        const catalog = ['animals','lots','owners','brands','paddocks','agreements','sales','sale_payments','sale_expenses'].includes(collection);
         return { collection, payload: catalog ? { ...payload, farm: farm.id } : payload };
     });
     const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];
     await db.transaction('rw', tables, async () => {
         if (get(sessionChanging) || get(currentFarm)?.id !== farm.id || (get(currentFarm)?.dataVersion ?? 0) !== (farm.dataVersion ?? 0)) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
         for (const { collection, payload } of normalized) {
-            if (collection === 'sales' || collection === 'sale_payments') {
+            if (collection === 'sales' || collection === 'sale_payments' || collection === 'sale_expenses') {
                 const previous = (await db.outbox.toArray()).filter((r) => r.collection === collection && r.record_id === payload.id);
                 if (previous.length && get(syncing)) throw new Error('Esperá a que termine el envío antes de corregir el registro financiero.');
                 await db.outbox.bulkDelete(previous.map((r) => r.id!));

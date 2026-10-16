@@ -9,8 +9,8 @@ from rest_framework.views import APIView
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, Brand, Owner, Paddock
-from apps.livestock.sales import apply_sale
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
+from apps.livestock.sales import apply_sale, refresh_sale_agreements
 from apps.production.models import Milking, Weighing
 from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
@@ -25,6 +25,7 @@ from .serializers import (
     AnimalAgreementSerializer,
     AnimalSaleSerializer,
     SalePaymentSerializer,
+    SaleExpenseSerializer,
     BrandSerializer,
     HealthEventSerializer,
     MilkingSerializer,
@@ -47,6 +48,7 @@ PULL_COLLECTIONS = {
     "health_events": (HealthEvent, HealthEventSerializer),
     'sales': (AnimalSale, AnimalSaleSerializer),
     'sale_payments': (SalePayment, SalePaymentSerializer),
+    'sale_expenses': (SaleExpense, SaleExpenseSerializer),
 }
 
 WRITE_COLLECTIONS = {
@@ -70,6 +72,7 @@ WRITE_COLLECTIONS = {
     ),
     'sales': (AnimalSale, AnimalSaleSerializer, FarmMembership.Role.ADMIN),
     'sale_payments': (SalePayment, SalePaymentSerializer, FarmMembership.Role.ADMIN),
+    'sale_expenses': (SaleExpense, SaleExpenseSerializer, FarmMembership.Role.ADMIN),
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
@@ -111,7 +114,7 @@ class SyncPullView(APIView):
 
         payload = {}
         for name, (model, serializer_class) in PULL_COLLECTIONS.items():
-            if name in ('agreements', 'sales', 'sale_payments') and request.farm_membership.role != FarmMembership.Role.ADMIN:
+            if name in ('agreements', 'sales', 'sale_payments', 'sale_expenses') and request.farm_membership.role != FarmMembership.Role.ADMIN:
                 payload[name] = []
                 continue
             queryset = model.objects.filter(farm_id=farm_id)
@@ -185,7 +188,7 @@ class SyncBatchView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
                 for name, (model, serializer_class, records) in authorized.items():
-                    if model in (AnimalSale, SalePayment):
+                    if model in (AnimalSale, SalePayment, SaleExpense):
                         entries = []
                         for record in records:
                             record_id = record.get('id')
@@ -202,6 +205,9 @@ class SyncBatchView(APIView):
                                 obj = model.objects.create(id=record_id, **serializer.validated_data)
                                 if model is AnimalSale:
                                     apply_sale(obj)
+                                elif model is SaleExpense:
+                                    AnimalSale.objects.filter(pk=obj.sale_id).update(updated_at=timezone.now())
+                                    refresh_sale_agreements(obj.sale)
                                 entries.append({'id': str(record_id), 'status': 'created'})
                         results[name] = entries
                         continue

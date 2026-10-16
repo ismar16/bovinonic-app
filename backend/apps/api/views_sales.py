@@ -2,8 +2,8 @@ from uuid import UUID
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .permissions import HasFarmMembership, IsAdmin
-from .serializers import AnimalSaleSerializer, SalePaymentSerializer
-from apps.livestock.models import AnimalSale, SalePayment
+from .serializers import AnimalSaleSerializer, SalePaymentSerializer, SaleExpenseSerializer
+from apps.livestock.models import AnimalSale, SalePayment, SaleExpense
 
 
 class FinancialReceiptView(APIView):
@@ -11,7 +11,7 @@ class FinancialReceiptView(APIView):
     permission_classes = [HasFarmMembership, IsAdmin]
 
     def get(self, request):
-        definitions = {'sales': (AnimalSale, AnimalSaleSerializer), 'sale_payments': (SalePayment, SalePaymentSerializer)}
+        definitions = {'sales': (AnimalSale, AnimalSaleSerializer), 'sale_payments': (SalePayment, SalePaymentSerializer), 'sale_expenses': (SaleExpense, SaleExpenseSerializer)}
         definition = definitions.get(request.query_params.get('collection'))
         try:
             record_id = UUID(request.query_params.get('id', ''))

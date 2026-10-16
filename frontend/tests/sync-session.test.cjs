@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'weighings', 'milkings',
+  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v4', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v5', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v4')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v5')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -283,7 +283,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v4', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v5', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -526,4 +526,50 @@ test('a lost financial response is reconciled from the server before editing and
   assert.equal((await db.outbox.toArray())[0].record_id,'other');
   await sync.enqueue('sale_payments',{id:'payment'});api.financialReceipt=async()=>({record:null});
   assert.equal(await sync.reviewFinancialPending('sale_payments','payment'),false);assert.equal(await db.outbox.count(),2);
+});
+
+function confirmedSale() {
+  const agreement=draftAgreement();agreement.updated_at='2026-10-01T00:00:00Z';
+  const sale=saleHelpers().validateSale(draftSale(),[agreement]);
+  Object.assign(sale.lines[0],{kind:'weight_gain',initial_weight:'180',owner_share:'50'});
+  return sale;
+}
+function lateExpense(overrides={}) {
+  return {id:'late',farm:'farm-a',sale:'sale',animal:'cow',date:'2026-09-15',concept:'Medicine forgotten',amount:'1000',paid_by:'owner',...overrides};
+}
+
+test('later sale expense recalculates from snapshots and merging the server receipt never deducts twice',()=>{
+  const {saleWithExpenses,validateSaleExpense}=saleHelpers();const sale=confirmedSale();
+  const added=validateSaleExpense(lateExpense(),sale,[]);const adjusted=saleWithExpenses(sale,[added]);
+  assert.equal(adjusted.lines[0].settlement.net_gain,'8000.00');assert.equal(adjusted.lines[0].settlement.expenses,'2000.00');
+  assert.equal(adjusted.lines[0].settlement.owner_total,'24000.00');assert.equal(adjusted.lines[0].settlement.partner_total,'4000.00');
+  const again=saleWithExpenses(adjusted,[added]);assert.deepEqual(again,adjusted);
+  assert.equal(sale.lines[0].settlement.net_gain,'9000.00');assert.equal(sale.total,adjusted.total);
+});
+
+test('later sale expenses validate animals, dates, payer, exact decimals and loss acknowledgement',()=>{
+  const {validateSaleExpense}=saleHelpers();const sale=confirmedSale();
+  for(const bad of [{animal:'other'},{date:'2099-01-01'},{amount:'NaN'},{amount:'0'},{amount:'1.001'},{concept:' '}])assert.throws(()=>validateSaleExpense(lateExpense(bad),sale,[]));
+  assert.throws(()=>validateSaleExpense(lateExpense({amount:'11000'}),sale,[]),/pérdidas/);
+  const result=validateSaleExpense(lateExpense({amount:'11000',accept_loss:true}),sale,[]);assert.equal(result.amount,'11000.00');
+  assert.throws(()=>validateSaleExpense(lateExpense({amount:'11000',accept_loss:'true'}),sale,[]),/pérdidas/);
+});
+
+test('later expenses preserve both payers and derive net income for own animals',()=>{
+  const {saleWithExpenses}=saleHelpers();let sale=confirmedSale();
+  let result=saleWithExpenses(sale,[lateExpense(),lateExpense({id:'second',paid_by:'partner',amount:'500'})]);
+  assert.equal(result.lines[0].settlement.expenses,'2500.00');assert.equal(result.lines[0].settlement.partner_total,'4250.00');
+  sale=saleHelpers().validateSale(draftSale(),[]);result=saleWithExpenses(sale,[lateExpense()]);
+  assert.equal(result.lines[0].net_after_expenses,'27000.00');assert.equal(result.lines[0].settlement,null);
+});
+
+test('later expense sync enforces admin, survives failure and pulls adjusted sale and agreement',async()=>{
+  const {sync,db,stores,api}=setup();stores.currentFarm.set({id:'farm-a',role:'operator'});
+  await assert.rejects(sync.enqueue('sale_expenses',lateExpense()),/rol/);stores.currentFarm.set({id:'farm-a',role:'admin'});
+  await sync.enqueue('sale_expenses',lateExpense());api.pushBatch=async()=>{throw new TypeError('network');};
+  await sync.syncNow();assert.equal(await db.outbox.count(),1);
+  api.pushBatch=async()=>({sale_expenses:[{id:'late',status:'created'}]});
+  api.pull=async()=>({sale_expenses:[lateExpense()],sales:[saleHelpers().saleWithExpenses(confirmedSale(),[lateExpense()])],agreements:[{...draftAgreement(),settlement:{expenses:'2000.00'}}]});
+  await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal((await db.sales.get('sale')).lines[0].settlement.expenses,'2000.00');
+  assert.equal((await db.agreements.get('agreement')).settlement.expenses,'2000.00');
 });

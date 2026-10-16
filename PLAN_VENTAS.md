@@ -36,3 +36,12 @@
 - Registros históricos marcados como vendidos antes de este módulo se conservan; no se inventan compradores, importes ni cobros retroactivos.
 - La migración `livestock.0006` crea únicamente tablas e índices; no altera ni elimina registros existentes.
 - Preparado localmente para revisión; esta entrega no se desplegó en producción.
+
+
+## Gastos posteriores a una venta confirmada
+
+En **Ventas y cobros → abrir venta → Agregar gasto a esta venta** se elige animal, fecha real del gasto, concepto, importe y quién lo pagó. El registro admite un gasto olvidado anterior a la fecha de venta, siempre que no sea futuro ni anterior al nacimiento del animal.
+
+El gasto se guarda como un asiento independiente e inmutable, con UUID y fecha de registro. Se conserva el comprobante original; la liquidación actual se deriva del original y todos los gastos posteriores, sin duplicarlos al sincronizar. El resumen del acuerdo también se actualiza cuando ya estaba cerrado. No cambian comprador, peso, precio, total de venta, cobros ni saldo del comprador.
+
+Los gastos pendientes muestran un cálculo provisional y admiten revisión antes de confirmarse; se comprueba primero el registro del servidor para recuperar respuestas perdidas. Si el nuevo gasto genera pérdidas, se exige confirmación expresa del reparto. En ventas propias se muestra el ingreso menos gastos; en pasto alquilado se actualiza el reembolso al responsable. El comprobante CSV incluye gastos posteriores y liquidación original y actualizada.

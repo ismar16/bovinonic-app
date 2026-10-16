@@ -229,3 +229,16 @@ class SalePayment(TimeStampedModel):
 
     class Meta:
         indexes = [models.Index(fields=['farm', 'updated_at'])]
+
+
+class SaleExpense(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='sale_expenses')
+    sale = models.ForeignKey(AnimalSale, on_delete=models.CASCADE, related_name='expense_adjustments')
+    animal = models.ForeignKey(Animal, on_delete=models.PROTECT, related_name='sale_expenses')
+    date = models.DateField()
+    concept = models.CharField(max_length=200)
+    amount = models.DecimalField(max_digits=11, decimal_places=2)
+    paid_by = models.CharField(max_length=10, choices=[('owner', 'Propietario'), ('partner', 'Responsable')])
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at'])]
