@@ -41,10 +41,10 @@ PULL_COLLECTIONS = {
 }
 
 WRITE_COLLECTIONS = {
-    "animals": (Animal, AnimalSerializer, FarmMembership.Role.TECHNICIAN),
     "owners": (Owner, OwnerSerializer, FarmMembership.Role.ADMIN),
     "brands": (Brand, BrandSerializer, FarmMembership.Role.ADMIN),
     "paddocks": (Paddock, PaddockSerializer, FarmMembership.Role.ADMIN),
+    "animals": (Animal, AnimalSerializer, FarmMembership.Role.TECHNICIAN),
     "weighings": (Weighing, WeighingSerializer, FarmMembership.Role.OPERATOR),
     "milkings": (Milking, MilkingSerializer, FarmMembership.Role.OPERATOR),
     "reproductive_events": (

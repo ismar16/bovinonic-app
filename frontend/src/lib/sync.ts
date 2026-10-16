@@ -29,13 +29,21 @@ export async function enqueue(
 	collection: OutboxRecord['collection'],
 	payload: Record<string, unknown> & { id: string }
 ): Promise<void> {
+	const farm = get(currentFarm);
+	if (!farm) throw new Error('Seleccioná una finca antes de guardar.');
+	const roles: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
+	const minimum = ['owners', 'brands', 'paddocks'].includes(collection) ? 3
+		: ['animals', 'reproductive_events', 'health_events'].includes(collection) ? 2 : 1;
+	if ((roles[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
+	const localPayload = ['animals', 'owners', 'brands', 'paddocks'].includes(collection)
+		? { ...payload, farm: farm.id } : payload;
 	await db.transaction('rw', db.outbox, db[collection], async () => {
 		if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
-		await db[collection].put(payload as never);
+		await db[collection].put(localPayload as never);
 		await db.outbox.add({
 			collection,
 			record_id: payload.id,
-			payload,
+			payload: localPayload,
 			created_at: new Date().toISOString()
 		});
 	});

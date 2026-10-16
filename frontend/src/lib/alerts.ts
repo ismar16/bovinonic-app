@@ -1,3 +1,4 @@
+import { farmDate, addDateDays } from '$lib/dates';
 import { browser } from '$app/environment';
 
 import { db, type Animal, type ReproductiveEvent } from './db';
@@ -27,7 +28,7 @@ function daysBetween(from: string, to: string): number {
 }
 
 export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
-	const today = new Date().toISOString().slice(0, 10);
+	const today = farmDate();
 	const animals = (await db.animals.where('farm').equals(farmId).toArray()).filter(
 		(a) => a.status === 'active'
 	);
@@ -114,20 +115,16 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 
 export async function computeWithdrawalCount(farmId: string): Promise<number> {
 	if (!browser) return 0;
-	const today = new Date().toISOString().slice(0, 10);
+	const today = farmDate();
 	const animals = await db.animals.where('farm').equals(farmId).toArray();
 	const animalIds = new Set(animals.map((a) => a.id));
 	const events = await db.health_events.toArray();
 	const active = new Set<string>();
 	for (const e of events) {
 		if (!animalIds.has(e.animal)) continue;
+		if (!e.withdrawal_days) continue;
 		const end =
-			e.withdrawal_end_date ??
-			(() => {
-				const d = new Date(`${e.date}T00:00:00`);
-				d.setDate(d.getDate() + (e.withdrawal_days ?? 0));
-				return d.toISOString().slice(0, 10);
-			})();
+			e.withdrawal_end_date ?? addDateDays(e.date, e.withdrawal_days ?? 0);
 		if (end >= today) active.add(e.animal);
 	}
 	return active.size;

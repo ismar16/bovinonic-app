@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { farmDate } from '$lib/dates';
 	import { Button } from '$lib/components/ui/button';
 	import { goto } from '$app/navigation';
 
@@ -9,8 +10,10 @@
 	let animal = $state<Animal | null>(null);
 	let shift = $state<'AM' | 'PM'>('AM');
 	let liters = $state('');
-	let date = $state(new Date().toISOString().slice(0, 10));
+	let date = $state(farmDate());
 	let saved = $state(false);
+	let saving = $state(false);
+	let error = $state('');
 	let inactiveWarning = $state(false);
 
 	function selectAnimal(selected: Animal) {
@@ -19,13 +22,18 @@
 	}
 
 	async function save() {
-		if (!animal || !liters) return;
+		if (!animal || saving || saved) return;
+		error = '';
+		const value = Number(liters.replace(',', '.'));
+		if (!date || !liters.trim() || !Number.isFinite(value) || value < 0) { error = 'Ingresá una fecha y una cantidad válida igual o mayor que cero.'; return; }
+		saving = true;
+		try {
 		await enqueue('milkings', {
 			id: crypto.randomUUID(),
 			animal: animal.id,
 			date,
 			shift,
-			liters: parseFloat(liters).toFixed(2)
+			liters: value.toFixed(2)
 		});
 		saved = true;
 		setTimeout(() => {
@@ -34,12 +42,13 @@
 			saved = false;
 			inactiveWarning = false;
 		}, 1200);
+		} catch { error = 'No se pudo guardar. Revisá los datos y volvé a intentarlo.'; } finally { saving = false; }
 	}
 </script>
 
 <svelte:head><title>Control lechero · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="record-form mt-5 flex flex-col gap-4">
 	<h1 class="text-2xl font-extrabold">Control lechero</h1>
 
 	{#if !animal}
@@ -96,13 +105,14 @@
 			/>
 		</label>
 
+		{#if error}<p role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>{/if}
 		<Button
 			type="button"
 			onclick={save}
-			disabled={!liters || saved}
+			disabled={!liters || saved || saving}
 			class="h-14 w-full text-xl font-extrabold"
 		>
-			{saved ? 'Guardado ✓' : 'Guardar ordeño'}
+			{saved ? 'Guardado en este dispositivo ✓' : 'Guardar ordeño'}
 		</Button>
 
 		<button

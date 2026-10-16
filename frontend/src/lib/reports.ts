@@ -1,3 +1,4 @@
+import { farmDate, addDateDays } from './dates';
 import { db, type Animal, type Milking, type Weighing } from './db';
 
 export interface MilkDayRow {
@@ -24,9 +25,7 @@ export interface GmdAlertRow {
 }
 
 export function daysAgo(n: number): string {
-	const d = new Date();
-	d.setDate(d.getDate() - n);
-	return d.toISOString().slice(0, 10);
+	return addDateDays(farmDate(), -n);
 }
 
 export async function milkTodayTotal(farmId: string): Promise<number> {

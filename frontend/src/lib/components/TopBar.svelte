@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { LogOut } from 'lucide-svelte';
+	import { LogOut, RefreshCw, Search, MapPin } from 'lucide-svelte';
+	import { goto } from '$app/navigation';
 
 	import { logoutAndWipe, switchFarm } from '$lib/session';
 	import { syncNow } from '$lib/sync';
@@ -9,33 +10,36 @@
 		online,
 		pendingCount,
 		sessionUser,
+		lastSyncResult,
 		sessionChanging,
 		sessionNotice,
 		syncing,
 		syncError,
 		syncWarnings
 	} from '$lib/stores';
+	let query = $state('');
 
 	let statusColor = $derived(
 		$syncError
 			? 'bg-red-600'
-			: !$online || $pendingCount > 0
+			: !$online || $pendingCount > 0 || !$lastSyncResult
 				? 'bg-yellow-500'
 				: 'bg-green-600'
 	);
 	let statusLabel = $derived(
-		$syncError
+		$syncing ? 'Sincronizando…' : $syncError
 			? 'Error de sincronización'
 			: !$online
 				? `Modo campo · ${$pendingCount} pendientes`
 				: $pendingCount > 0
 					? `${$pendingCount} pendientes`
-					: 'Sincronizado'
+					: $lastSyncResult ? 'Datos al día' : 'Sin verificar'
 	);
 </script>
 
-<header class="sticky top-0 z-10 flex h-11 items-center justify-between border-b bg-white px-3 lg:h-16 lg:px-8">
+<header class="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 border-b bg-[#fafaf7]/95 px-4 lg:px-8">
 	<div class="flex min-w-0 items-center gap-2">
+		<MapPin class="hidden h-4 w-4 text-[#8d987e] sm:block" />
 		<span
 			class="inline-block h-3 w-3 shrink-0 rounded-full {statusColor} {$syncing
 				? 'animate-pulse'
@@ -62,6 +66,20 @@
 			<span class="truncate text-sm font-bold">{$currentFarm?.name ?? 'Gestión Ganadera'}</span>
 		{/if}
 	</div>
+	<form class="hidden w-full max-w-xs items-center gap-2 rounded-lg border bg-white px-3 lg:flex" onsubmit={(e) => {
+		e.preventDefault(); void goto(`/herd?q=${encodeURIComponent(query.trim())}`);
+	}}>
+		<Search class="h-4 w-4 text-neutral-400" />
+		<input bind:value={query} aria-label="Buscar un animal" placeholder="Buscar arete o nombre…" class="h-10 w-full bg-transparent text-xs outline-none" />
+	</form>
+	<div class="flex shrink-0 items-center gap-2">
+		<button type="button" onclick={() => syncNow()} disabled={!$online || $syncing || $sessionChanging}
+			class="flex min-h-10 items-center gap-2 rounded-lg border bg-white px-3 text-xs font-medium text-[#596c5c] disabled:opacity-60"
+			title="Comprobar y sincronizar datos">
+			<RefreshCw class="h-3.5 w-3.5 {$syncing ? 'animate-spin' : ''}" />
+			<span class="hidden sm:inline">{statusLabel}</span>
+			<span class="sm:hidden">{$pendingCount ? $pendingCount : 'Sync'}</span>
+		</button>
 	{#if $sessionUser}
 		<button
 			type="button"
@@ -73,6 +91,7 @@
 			<LogOut class="h-5 w-5" />
 		</button>
 	{/if}
+	</div>
 </header>
 
 {#if $sessionNotice}

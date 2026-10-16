@@ -25,6 +25,8 @@
 	let paddocks = $state<Paddock[]>([]);
 	let brands = $state<Brand[]>([]);
 	let saved = $state(false);
+	let saving = $state(false);
+	let error = $state('');
 	let notFound = $state(false);
 
 	onMount(async () => {
@@ -35,7 +37,7 @@
 			return;
 		}
 		const found = await db.animals.get(id);
-		if (!found) {
+		if (!found || found.farm !== farm.id) {
 			notFound = true;
 			return;
 		}
@@ -55,7 +57,11 @@
 	);
 
 	async function save() {
-		if (!animal) return;
+		if (!animal || saving) return;
+		error = '';
+		if (!['admin','technician'].includes($currentFarm?.role ?? '')) { error = 'Tu rol permite consultar, pero no editar animales.'; return; }
+		saving = true;
+		try {
 		await enqueue('animals', {
 			...animal,
 			name: name.trim(),
@@ -67,18 +73,19 @@
 		saved = true;
 		const targetId = animal.id;
 		setTimeout(() => goto(`/animals/${targetId}`), 900);
+		} catch { error = 'No se pudieron guardar los cambios. Tus datos siguen en el formulario; volvé a intentarlo.'; } finally { saving = false; }
 	}
 </script>
 
 <svelte:head><title>Editar {animal?.tag ?? ''} · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="record-form animal-form mt-5 flex flex-col gap-4">
 	{#if notFound}
 		<p class="rounded-md border-2 border-red-700 bg-red-50 p-4 font-bold text-red-700">
 			Animal no encontrado en este dispositivo.
 		</p>
 	{:else if animal}
-		<h1 class="text-2xl font-extrabold">Editar {animal.tag}</h1>
+		<p class="eyebrow">Actualizar ficha</p><h1 class="text-2xl font-extrabold">Editar {animal.tag}</h1><p class="text-xs leading-5 text-[#87927a]">Guardá los cambios aquí. Si estás sin conexión, quedarán pendientes de envío a la finca.</p>{#if error}<p role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>{/if}
 
 		<label class="flex flex-col gap-1 font-bold">
 			Nombre
@@ -142,10 +149,10 @@
 		<button
 			type="button"
 			onclick={save}
-			disabled={saved}
+			disabled={saved || saving}
 			class="h-14 w-full rounded-md bg-green-700 text-xl font-extrabold text-white disabled:opacity-50"
 		>
-			{saved ? 'Guardado ✓' : 'Guardar cambios'}
+			{saved ? 'Guardado en este dispositivo ✓' : saving ? 'Guardando…' : 'Guardar cambios'}
 		</button>
 	{/if}
 

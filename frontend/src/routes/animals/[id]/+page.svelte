@@ -1,8 +1,12 @@
 <script lang="ts">
+	import { farmDate, addDateDays } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { liveQuery } from 'dexie';
 
+	import { Pencil, ArrowLeft, Beef, MapPin } from 'lucide-svelte';
+	import { currentFarm } from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { db, type Animal, type HealthEvent, type Milking, type ReproductiveEvent, type Weighing } from '$lib/db';
@@ -17,25 +21,29 @@
 	let healthEvents = $state<HealthEvent[]>([]);
 	let activeWithdrawal = $state<string | null>(null);
 	let notFound = $state(false);
+	let pending = $state(false);
+	let paddockName = $state('Sin asignar');
+	let ownerName = $state('Sin asignar');
+	const canEdit = $derived(['admin','technician'].includes($currentFarm?.role ?? ''));
 
 	function addDays(isoDate: string, days: number): string {
-		const d = new Date(`${isoDate}T00:00:00`);
-		d.setDate(d.getDate() + days);
-		return d.toISOString().slice(0, 10);
+		return addDateDays(isoDate, days);
 	}
 
-	onMount(async () => {
+	async function loadAnimal() {
 		const id = page.params.id;
 		if (!id) {
 			notFound = true;
 			return;
 		}
 		const found = await db.animals.get(id);
-		if (!found) {
+		if (!found || found.farm !== $currentFarm?.id) {
 			notFound = true;
 			return;
 		}
-		animal = found;
+		pending = (await db.outbox.toArray()).some((r) => r.collection === 'animals' && r.record_id === found.id);
+		if (found.paddock) paddockName = (await db.paddocks.get(found.paddock))?.name ?? 'Sin asignar';
+		if (found.owner) ownerName = (await db.owners.get(found.owner))?.name ?? 'Sin asignar';
 		if (found.mother) mother = (await db.animals.get(found.mother)) ?? null;
 		if (found.father) father = (await db.animals.get(found.father)) ?? null;
 		const asMother = await db.animals.where('farm').equals(found.farm).filter((a) => a.mother === found.id).toArray();
@@ -53,14 +61,21 @@
 			})
 			.slice(0, 10);
 		reproEvents = (await db.reproductive_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
-		healthEvents = (await db.health_events.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
-		const today = new Date().toISOString().slice(0, 10);
-		const active = healthEvents
+		const allHealth = (await db.health_events.where('animal').equals(found.id).sortBy('date')).reverse();
+		healthEvents = allHealth.slice(0, 10);
+		const today = farmDate();
+		const active = allHealth
+			.filter((e) => e.withdrawal_days > 0)
 			.map((e) => e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0))
 			.filter((end) => end >= today)
 			.sort()
 			.reverse();
 		activeWithdrawal = active[0] ?? null;
+		animal = found;
+	}
+	onMount(() => {
+		const subscription = liveQuery(loadAnimal).subscribe({ error() { notFound = true; } });
+		return () => subscription.unsubscribe();
 	});
 
 	const TYPE_LABELS: Record<string, string> = {
@@ -95,29 +110,30 @@
 
 <svelte:head><title>Ficha {animal?.tag ?? ''} · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="workspace-page flex flex-col gap-5">
 	{#if notFound}
 		<p class="rounded-md border-2 border-red-700 bg-red-50 p-4 font-bold text-red-700">
 			Animal no encontrado en este dispositivo.
 		</p>
 	{:else if animal}
-		<div class="rounded-md border-2 border-black p-4">
+        <header class="flex flex-wrap items-center justify-between gap-3"><a href="/herd" class="inline-flex items-center gap-2 text-xs text-[#7a886b]"><ArrowLeft class="h-4 w-4" /> Volver al hato</a>{#if canEdit}<a href="/animals/{animal.id}/edit" class="action-button"><Pencil class="h-4 w-4" /> Editar datos</a>{/if}</header>
+        <div class="panel p-5 sm:p-7">
 			{#if animal.photo_url}
 				<img
 					src={animal.photo_url}
 					alt="Foto de {animal.tag}"
-					class="mb-3 w-full rounded-md border-2 border-black object-cover"
+					class="mb-4 h-48 w-full rounded-xl object-cover sm:h-64"
 				/>
 			{/if}
 			<div class="flex items-start justify-between gap-2">
 				<div>
-					<p class="text-3xl font-extrabold">{animal.tag}</p>
-					<p class="text-lg">{animal.name || 'Sin nombre'}</p>
+					<p class="eyebrow mb-2">Ficha individual del animal</p><h1 class="page-title">{animal.tag}</h1>
+					<p class="mt-2 font-serif text-xl text-[#7a8969]">{animal.name || 'Sin nombre'}</p>
 					<p class="text-sm font-bold uppercase text-neutral-600">
 						{animal.sex} · {CATEGORY_LABELS[animal.category] ?? animal.category}
 					</p>
 				</div>
-				<div class="flex flex-col items-end gap-1">
+				<div class="flex flex-col items-end gap-2">{#if pending}<span class="status-pill pending">Cambios pendientes de envío</span>{/if}
 					<Badge
 						class={animal.status === 'active'
 							? 'bg-green-700 text-white'
@@ -139,7 +155,10 @@
 			{/if}
 		</div>
 
-		<Tabs.Root value="general">
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {#each [{label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
+        </div>
+        <Tabs.Root value="general">
 			<Tabs.List class="grid w-full grid-cols-4">
 				<Tabs.Trigger value="general">General</Tabs.Trigger>
 				<Tabs.Trigger value="production">Producción</Tabs.Trigger>
@@ -149,7 +168,7 @@
 
 			<Tabs.Content value="general">
 				<div class="flex flex-col gap-4 pt-2">
-					<section class="rounded-md border-2 border-black p-4">
+					<section class="panel p-5 sm:p-7">
 						<h2 class="mb-2 text-lg font-extrabold">Datos</h2>
 						{#if animal.birth_date}
 							<p><span class="font-bold">Nacimiento:</span> {animal.birth_date}</p>
@@ -167,10 +186,10 @@
 							</ul>
 						{/if}
 					</section>
-					<div class="grid grid-cols-2 gap-2">
+					{#if canEdit}<div class="grid grid-cols-2 gap-2">
 						<a
 							href="/animals/{animal.id}/edit"
-							class="flex h-14 items-center justify-center rounded-md border-2 border-black font-extrabold"
+							class="flex h-14 items-center justify-center rounded-xl border border-[#dde3d3] bg-white font-extrabold"
 							>Editar datos</a
 						>
 						<a
@@ -178,13 +197,13 @@
 							class="flex h-14 items-center justify-center rounded-md bg-red-700 font-extrabold text-white"
 							>Cambio de estado</a
 						>
-					</div>
+					</div>{/if}
 				</div>
 			</Tabs.Content>
 
 			<Tabs.Content value="production">
 				<div class="flex flex-col gap-4 pt-2">
-					<section class="rounded-md border-2 border-black p-4">
+					<section class="panel p-5 sm:p-7">
 						<h2 class="mb-2 text-lg font-extrabold">Pesajes</h2>
 						{#if weightCurve}
 							<svg viewBox="0 0 300 60" class="mb-2 w-full" role="img" aria-label="Curva de peso">
@@ -206,7 +225,7 @@
 							{/each}
 						</ul>
 					</section>
-					<section class="rounded-md border-2 border-black p-4">
+					<section class="panel p-5 sm:p-7">
 						<h2 class="mb-2 text-lg font-extrabold">Ordeños</h2>
 						<ul class="flex flex-col gap-1">
 							{#each milkings as m (m.id)}
@@ -223,7 +242,7 @@
 			</Tabs.Content>
 
 			<Tabs.Content value="reproduction">
-				<section class="mt-2 rounded-md border-2 border-black p-4">
+				<section class="mt-2 rounded-xl border border-[#dde3d3] bg-white p-4">
 					<h2 class="mb-2 text-lg font-extrabold">Eventos reproductivos</h2>
 					<ul class="flex flex-col gap-1">
 						{#each reproEvents as e (e.id)}
@@ -246,7 +265,7 @@
 			</Tabs.Content>
 
 			<Tabs.Content value="health">
-				<section class="mt-2 rounded-md border-2 border-black p-4">
+				<section class="mt-2 rounded-xl border border-[#dde3d3] bg-white p-4">
 					<h2 class="mb-2 text-lg font-extrabold">Eventos sanitarios</h2>
 					<ul class="flex flex-col gap-1">
 						{#each healthEvents as e (e.id)}
@@ -273,7 +292,7 @@
 	<button
 		type="button"
 		onclick={() => goto('/herd')}
-		class="h-14 w-full rounded-md border-2 border-black font-extrabold"
+		class="h-14 w-full rounded-xl border border-[#dde3d3] bg-white font-extrabold"
 	>
 		Volver al hato
 	</button>

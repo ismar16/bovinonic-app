@@ -2,6 +2,7 @@
 	import { Milk, Plus, PlusCircle, Scale, Syringe, HeartPulse } from 'lucide-svelte';
 
 	import * as Sheet from '$lib/components/ui/sheet';
+	import { currentFarm } from '$lib/stores';
 
 	let open = $state(false);
 
@@ -27,7 +28,7 @@
 			<Sheet.Title>Registro rápido</Sheet.Title>
 		</Sheet.Header>
 		<div class="flex flex-col gap-2 p-4">
-			{#each actions as action (action.href)}
+			{#each actions.filter((a) => ['admin','technician'].includes($currentFarm?.role ?? '') || ['/weighing','/milking'].includes(a.href)) as action (action.href)}
 				<a
 					href={action.href}
 					onclick={() => (open = false)}

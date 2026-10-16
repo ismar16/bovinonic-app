@@ -57,7 +57,7 @@
 
 	async function save() {
 		const farm = $currentFarm;
-		if (!farm) return;
+		if (!farm || checking || saved) return;
 		error = '';
 		const cleanTag = tag.trim();
 		if (!cleanTag) {
@@ -69,12 +69,13 @@
 			.where('tag')
 			.equalsIgnoreCase(cleanTag)
 			.first();
-		checking = false;
 		if (duplicate) {
+			checking = false;
 			error = `El arete ${cleanTag} ya existe en este dispositivo (${duplicate.name || duplicate.tag}).`;
 			return;
 		}
 
+		try {
 		await enqueue('animals', {
 			id: crypto.randomUUID(),
 			tag: cleanTag,
@@ -90,13 +91,14 @@
 			status: 'active'
 		});
 		saved = true;
-		setTimeout(() => goto('/operations'), 1000);
+		setTimeout(() => goto('/herd'), 1000);
+		} catch { error = 'No se pudo guardar el animal. Tus datos siguen en el formulario.'; } finally { checking = false; }
 	}
 </script>
 
 <svelte:head><title>Nuevo animal · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="record-form animal-form mt-5 flex flex-col gap-4">
 	<h1 class="text-2xl font-extrabold">Nuevo animal</h1>
 
 	<label class="flex flex-col gap-1 font-bold">
@@ -239,7 +241,7 @@
 		disabled={saved || checking}
 		class="h-14 w-full text-xl font-extrabold"
 	>
-		{saved ? 'Guardado ✓' : checking ? 'Verificando…' : 'Guardar animal'}
+		{saved ? 'Guardado en este dispositivo ✓' : checking ? 'Verificando…' : 'Guardar animal'}
 	</Button>
 
 	<button

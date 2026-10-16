@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { farmDate, addDateDays } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
@@ -25,9 +26,7 @@
 	let rows = $state<WithdrawalRow[]>([]);
 
 	function addDays(isoDate: string, days: number): string {
-		const d = new Date(`${isoDate}T00:00:00`);
-		d.setDate(d.getDate() + days);
-		return d.toISOString().slice(0, 10);
+		return addDateDays(isoDate, days);
 	}
 
 	onMount(async () => {
@@ -36,7 +35,7 @@
 			await goto('/');
 			return;
 		}
-		const today = new Date().toISOString().slice(0, 10);
+		const today = farmDate();
 		const animals = await db.animals.where('farm').equals(farm.id).toArray();
 		const animalMap = new Map(animals.map((a) => [a.id, a]));
 		const events = await db.health_events.toArray();
@@ -45,6 +44,7 @@
 		for (const e of events) {
 			const animal = animalMap.get(e.animal);
 			if (!animal) continue;
+			if (!e.withdrawal_days) continue;
 			const end = e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0);
 			if (end < today) continue;
 			const daysLeft = Math.ceil(
@@ -90,7 +90,7 @@
 			</li>
 		{:else}
 			<li class="rounded-md border-2 border-dashed border-green-700 p-6 text-center font-bold text-green-700">
-				Sin retiros activos. Toda la producción está apta.
+				No hay retiros vigentes en los registros de este dispositivo.
 			</li>
 		{/each}
 	</ul>

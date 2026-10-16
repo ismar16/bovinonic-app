@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { farmDate, addDateDays } from '$lib/dates';
 	import { Button } from '$lib/components/ui/button';
 	import { goto } from '$app/navigation';
 
@@ -17,7 +18,7 @@
 	let type = $state<(typeof TYPES)[number]['value']>('vaccine');
 	let product = $state('');
 	let dose = $state('');
-	let date = $state(new Date().toISOString().slice(0, 10));
+	let date = $state(farmDate());
 	let withdrawalDays = $state('0');
 	let saved = $state(false);
 	let inactiveWarning = $state(false);
@@ -29,9 +30,7 @@
 	}
 
 	function addDays(isoDate: string, days: number): string {
-		const d = new Date(`${isoDate}T00:00:00`);
-		d.setDate(d.getDate() + days);
-		return d.toISOString().slice(0, 10);
+		return addDateDays(isoDate, days);
 	}
 
 	let days = $derived(Math.max(0, parseInt(withdrawalDays) || 0));
@@ -67,7 +66,7 @@
 
 <svelte:head><title>Evento sanitario · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="record-form mt-5 flex flex-col gap-4">
 	<h1 class="text-2xl font-extrabold">Evento sanitario</h1>
 
 	{#if !animal}

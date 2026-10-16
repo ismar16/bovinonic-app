@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { farmDate } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
@@ -15,7 +16,7 @@
 
 	let animal = $state<Animal | null>(null);
 	let newStatus = $state<(typeof TARGET_STATUSES)[number]['value']>('sold');
-	let date = $state(new Date().toISOString().slice(0, 10));
+	let date = $state(farmDate());
 	let reason = $state('');
 	let saved = $state(false);
 	let notFound = $state(false);
@@ -50,7 +51,7 @@
 
 <svelte:head><title>Cambio de estado {animal?.tag ?? ''} · Gestión Ganadera</title></svelte:head>
 
-<div class="flex flex-col gap-4 pt-4">
+<div class="record-form mt-5 flex flex-col gap-4">
 	{#if notFound}
 		<p class="rounded-md border-2 border-red-700 bg-red-50 p-4 font-bold text-red-700">
 			Animal no encontrado en este dispositivo.

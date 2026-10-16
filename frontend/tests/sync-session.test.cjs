@@ -93,7 +93,7 @@ test('multiple offline edits to the same record upload only its latest version',
   await sync.enqueue('animals', { id: 'cow', name: 'First' });
   await sync.enqueue('animals', { id: 'cow', name: 'Latest' });
   api.pushBatch = async (_farm, collections) => {
-    assert.deepEqual(collections.animals, [{ id: 'cow', name: 'Latest' }]);
+    assert.deepEqual(collections.animals, [{ id: 'cow', name: 'Latest', farm: 'farm-a' }]);
     return { animals: [{ id: 'cow', status: 'created' }] };
   };
   await sync.syncNow();
@@ -172,4 +172,35 @@ test('forms cannot enqueue while a session change is clearing local data', async
   stores.sessionChanging.set(true);
   await assert.rejects(sync.enqueue('animals', { id: 'cow' }), /cambio de sesión/);
   assert.equal(await db.outbox.count(), 0);
+});
+
+test('new offline animals retain their farm and appear in farm-scoped queries', async () => {
+  const { sync, db } = setup();
+  await sync.enqueue('animals', { id: 'new-calf', tag: 'NI-100' });
+  assert.equal((await db.animals.get('new-calf')).farm, 'farm-a');
+  assert.equal((await db.outbox.toArray())[0].payload.farm, 'farm-a');
+});
+
+test('saving without an assigned farm cannot orphan data', async () => {
+  const { sync, db, stores } = setup();
+  stores.currentFarm.set(null);
+  await assert.rejects(sync.enqueue('animals', { id: 'calf' }), /finca/);
+  assert.equal(await db.animals.count(), 0);
+});
+
+test('business dates remain on the Nicaragua day after midnight UTC', () => {
+  const { farmDate, addDateDays } = load('dates', {});
+  assert.equal(farmDate(new Date('2026-10-16T02:30:00Z')), '2026-10-15');
+  assert.equal(farmDate(new Date('2026-10-16T06:01:00Z')), '2026-10-16');
+  assert.equal(addDateDays('2026-12-31', 1), '2027-01-01');
+  assert.equal(addDateDays('2024-02-28', 1), '2024-02-29');
+});
+
+test('operators cannot queue animal edits that the API would reject', async () => {
+  const { sync, db, stores } = setup();
+  stores.currentFarm.set({ id: 'farm-a', role: 'operator' });
+  await assert.rejects(sync.enqueue('animals', { id: 'cow' }), /rol/);
+  assert.equal(await db.outbox.count(), 0);
+  await sync.enqueue('weighings', { id: 'weight', animal: 'cow', weight_kg: '200' });
+  assert.equal(await db.outbox.count(), 1);
 });

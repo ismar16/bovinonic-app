@@ -480,3 +480,36 @@ class SyncApiTests(TestCase):
                     "farm": str(self.farm.id), "since": cursor,
                 })
                 self.assertEqual(response.status_code, 400, response.content)
+
+    def test_new_catalogs_and_animal_sync_in_dependency_order(self):
+        self.client.force_authenticate(self.admin_user)
+        owner_id, paddock_id, animal_id = [str(uuid.uuid4()) for _ in range(3)]
+        response = self.client.post("/api/sync/batch", {
+            "farm": str(self.farm.id),
+            "animals": [{"id": animal_id, "tag": "OFFLINE-NEW", "sex": "H",
+                         "category": "calf", "owner": owner_id, "paddock": paddock_id}],
+            "owners": [{"id": owner_id, "name": "Propietario nuevo"}],
+            "paddocks": [{"id": paddock_id, "name": "Potrero nuevo"}],
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        animal = Animal.objects.get(pk=animal_id)
+        self.assertEqual(str(animal.owner_id), owner_id)
+        self.assertEqual(str(animal.paddock_id), paddock_id)
+
+    def test_invalid_production_quantities_do_not_block_the_database(self):
+        self.client.force_authenticate(self.user)
+        for collection, fields in [
+            ("weighings", {"weight_kg": "-1"}),
+            ("weighings", {"weight_kg": "0"}),
+            ("milkings", {"liters": "-1", "shift": "AM"}),
+        ]:
+            with self.subTest(collection=collection, fields=fields):
+                response = self.client.post("/api/sync/batch", {
+                    "farm": str(self.farm.id), collection: [{
+                        "id": str(uuid.uuid4()), "animal": str(self.animal.id),
+                        "date": "2026-10-15", **fields,
+                    }],
+                }, format="json")
+                self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(Weighing.objects.exists())
+        self.assertFalse(Milking.objects.exists())

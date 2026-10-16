@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
@@ -80,6 +82,7 @@ class AnimalEventSerializer(FarmScopedSerializer):
 
 
 class WeighingSerializer(AnimalEventSerializer):
+    weight_kg = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=Decimal("0.01"))
     class Meta:
         model = Weighing
         fields = ["id", "animal", "date", "weight_kg", "updated_at", "historical_warning"]
@@ -87,6 +90,7 @@ class WeighingSerializer(AnimalEventSerializer):
 
 
 class MilkingSerializer(AnimalEventSerializer):
+    liters = serializers.DecimalField(max_digits=6, decimal_places=2, min_value=Decimal("0"))
     class Meta:
         model = Milking
         fields = ["id", "animal", "date", "shift", "liters", "updated_at", "historical_warning"]
