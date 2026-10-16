@@ -71,3 +71,18 @@ reinicio; bloqueo de clientes antiguos y permisos del estado de sincronización;
 limpieza de pendientes antes de subirlos, conservación de nuevos datos,
 reintentos sin red y rechazo de retrocesos de versión. Resultado: 33 pruebas
 Django y 26 del cliente aprobadas; Svelte/TypeScript sin diagnósticos.
+
+## Envío automático después de guardar
+
+Un guardado local confirmado programa un intento de sincronización después de
+1,5 segundos sin nuevos guardados. Los cambios consecutivos se agrupan. Si hay
+un envío o cambio de sesión en curso, el intento espera a que termine; una
+edición guardada durante un envío se manda en el siguiente. El retorno de la
+conexión, volver a una pestaña visible y el temporizador de 60 segundos también
+activan intentos. Una falla conserva los pendientes y no genera un bucle de
+reintentos inmediatos. Los temporizadores y suscripciones se eliminan al cerrar
+la interfaz. El tiempo total de confirmación depende de la respuesta del servidor.
+
+Pruebas del cliente: 31 aprobadas, incluidas agrupación de guardados, cambios
+durante una subida lenta, reconexión, retorno a la aplicación, intento periódico
+y cancelación de temporizadores. Los formularios indican el envío automático.

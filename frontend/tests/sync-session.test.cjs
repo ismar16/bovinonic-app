@@ -5,7 +5,9 @@ const { join } = require('node:path');
 const ts = require('typescript');
 
 function store(value) {
-  return { value, set(next) { this.value = next; } };
+  const subscribers = new Set();
+  return { value, set(next) { this.value = next; for (const subscriber of subscribers) subscriber(next); },
+    subscribe(fn) { subscribers.add(fn); fn(this.value); return () => subscribers.delete(fn); } };
 }
 
 function table(key = 'id') {
@@ -30,20 +32,20 @@ function table(key = 'id') {
   return api;
 }
 
-function load(name, dependencies) {
+function load(name, dependencies, globals = {}) {
   const source = readFileSync(join(__dirname, '../src/lib', `${name}.ts`), 'utf8');
   const code = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText;
   const module = { exports: {} };
-  new Function('module', 'exports', 'require', code)(module, module.exports, (id) => {
+  new Function('module', 'exports', 'require', ...Object.keys(globals), code)(module, module.exports, (id) => {
     if (!(id in dependencies)) throw new Error(`Unexpected import: ${id}`);
     return dependencies[id];
-  });
+  }, ...Object.values(globals));
   return module.exports;
 }
 
-function setup() {
+function setup(globals = {}) {
   const stores = {
     currentFarm: store({ id: 'farm-a', name: 'A', role: 'admin' }),
     online: store(true), syncing: store(false), sessionChanging: store(false),
@@ -70,7 +72,7 @@ function setup() {
     './api': api, './db': { db }, './stores': stores, './forms': load('forms', {}),
     '$app/navigation': { goto: async () => {} }
   };
-  const sync = load('sync', dependencies);
+  const sync = load('sync', dependencies, globals);
   return { stores, db, api, sync, dependencies };
 }
 
@@ -325,4 +327,96 @@ test('a server version rollback cannot erase current real records', async () => 
   await sync.syncNow();
   assert.ok(await db.animals.get('real-cow'));
   assert.equal(await db.outbox.count(), 1);
+});
+
+function autoSyncSetup() {
+  let now = 0, sequence = 0;
+  const timers = new Map(), intervals = new Map();
+  function events() {
+    const listeners = new Map();
+    return { addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
+      removeEventListener(type, fn) { listeners.get(type)?.delete(fn); },
+      emit(type) { for (const fn of listeners.get(type) ?? []) fn(); },
+      count() { return [...listeners.values()].reduce((sum, group) => sum + group.size, 0); } };
+  }
+  const window = events(), document = { ...events(), visibilityState: 'visible' };
+  const context = setup({ window, document,
+    setTimeout(fn, delay) { const id = ++sequence; timers.set(id, { fn, at: now + delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    setInterval(fn) { const id = ++sequence; intervals.set(id, fn); return id; },
+    clearInterval(id) { intervals.delete(id); } });
+  return { ...context, window, document, timers, intervals,
+    async tick(ms) {
+      const end = now + ms;
+      for (;;) {
+        const next = [...timers.entries()].filter(([, timer]) => timer.at <= end).sort((a,b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        now = next[1].at; timers.delete(next[0]); next[1].fn();
+        await new Promise(setImmediate);
+      }
+      now = end; await new Promise(setImmediate);
+    } };
+}
+
+test('saving several records quickly automatically uploads their latest values together', async () => {
+  const ctx = autoSyncSetup(); const stop = ctx.sync.startAutoSync(); let requests = 0;
+  try {
+    ctx.api.pushBatch = async (_farm, data) => { requests++; assert.equal(data.animals[0].name, 'Latest'); assert.equal(data.animals.length, 2); return { animals: data.animals.map(row => ({ id: row.id, status: 'created' })) }; };
+    await ctx.sync.enqueue('animals', { id: 'cow', name: 'First' });
+    await ctx.tick(1000);
+    await ctx.sync.enqueueMany([{ collection: 'animals', payload: { id: 'cow', name: 'Latest' } }, { collection: 'animals', payload: { id: 'calf' } }]);
+    await ctx.tick(1499); assert.equal(requests, 0);
+    await ctx.tick(1); assert.equal(requests, 1); assert.equal(await ctx.db.outbox.count(), 0);
+  } finally { stop(); }
+});
+
+test('a save during a slow upload is automatically sent after that upload finishes', async () => {
+  const ctx = autoSyncSetup(); const stop = ctx.sync.startAutoSync(); let release, requests = 0;
+  try {
+    const gate = new Promise(resolve => release = resolve);
+    ctx.api.pushBatch = async (_farm, data) => { requests++; if (requests === 1) await gate; return { animals: data.animals.map(row => ({ id: row.id, status: 'updated' })) }; };
+    await ctx.sync.enqueue('animals', { id: 'cow', name: 'First' });
+    await ctx.tick(1500); assert.equal(requests, 1); assert.equal(ctx.stores.syncing.value, true);
+    await ctx.sync.enqueue('animals', { id: 'cow', name: 'Edited during upload' });
+    await ctx.tick(1500); assert.equal(requests, 1);
+    release(); await new Promise(setImmediate); await ctx.tick(0);
+    assert.equal(requests, 2); assert.equal(await ctx.db.outbox.count(), 0);
+    assert.equal((await ctx.db.animals.get('cow')).name, 'Edited during upload');
+  } finally { release?.(); stop(); }
+});
+
+test('failed automatic sync preserves pending work and reconnect immediately retries it', async () => {
+  const ctx = autoSyncSetup(); const stop = ctx.sync.startAutoSync(); let requests = 0;
+  try {
+    ctx.api.syncState = async () => { requests++; throw new TypeError('offline'); };
+    await ctx.sync.enqueue('animals', { id: 'cow' }); await ctx.tick(1500);
+    assert.equal(requests, 1); assert.equal(await ctx.db.outbox.count(), 1);
+    await ctx.tick(10000); assert.equal(requests, 1);
+    ctx.api.syncState = async () => ({ data_version: 0, farm_name: 'A' });
+    ctx.api.pushBatch = async () => ({ animals: [{ id: 'cow', status: 'created' }] });
+    ctx.window.emit('online'); await ctx.tick(0);
+    assert.equal(await ctx.db.outbox.count(), 0);
+  } finally { stop(); }
+});
+
+test('returning to the app and the periodic timer both refresh the server data', async () => {
+  const ctx = autoSyncSetup(); const stop = ctx.sync.startAutoSync(); let pulls = 0;
+  try {
+    ctx.api.pull = async () => { pulls++; return {}; };
+    ctx.document.visibilityState = 'hidden'; ctx.document.emit('visibilitychange'); await ctx.tick(0); assert.equal(pulls, 0);
+    ctx.document.visibilityState = 'visible'; ctx.document.emit('visibilitychange'); await ctx.tick(0); assert.equal(pulls, 1);
+    for (const interval of ctx.intervals.values()) interval(); await ctx.tick(0); assert.equal(pulls, 2);
+  } finally { stop(); }
+});
+
+test('automatic sync waits for session changes and cleanup cancels scheduled work', async () => {
+  const ctx = autoSyncSetup(); const stop = ctx.sync.startAutoSync(); let uploads = 0;
+  ctx.api.pushBatch = async () => { uploads++; return { animals: [{ id: 'cow', status: 'created' }] }; };
+  await ctx.sync.enqueue('animals', { id: 'cow' }); ctx.stores.sessionChanging.set(true);
+  await ctx.tick(1500); assert.equal(uploads, 0);
+  ctx.stores.sessionChanging.set(false); await ctx.tick(0); assert.equal(uploads, 1);
+  await ctx.sync.enqueue('animals', { id: 'another' }); stop();
+  await ctx.tick(2000); assert.equal(uploads, 1);
+  assert.equal(ctx.timers.size, 0); assert.equal(ctx.intervals.size, 0);
+  assert.equal(ctx.window.count(), 0); assert.equal(ctx.document.count(), 0);
 });

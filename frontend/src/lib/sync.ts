@@ -21,6 +21,8 @@ const PULL_TABLES = [
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
 const LAST_PULL_KEY = 'last_pull_server_at_v2';
 const CHUNK_SIZE = 20;
+const SAVE_SYNC_DELAY_MS = 1500;
+const savedListeners = new Set<() => void>();
 
 export async function refreshPendingCount(): Promise<void> {
 	if (!browser) return;
@@ -58,6 +60,7 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
         }
     });
     await refreshPendingCount();
+    if (records.length) for (const listener of savedListeners) listener();
 }
 
 export async function syncNow(): Promise<{ pushed: number; warnings: string[] }> {
@@ -175,13 +178,42 @@ export async function syncNow(): Promise<{ pushed: number; warnings: string[] }>
 
 export function startAutoSync(): () => void {
 	if (!browser) return () => undefined;
-	const handler = () => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let requested = false;
+	function flush() {
+		timer = null;
+		// A save during an upload waits for that upload, then sends the new edit.
+		if (get(syncing) || get(sessionChanging)) return;
+		requested = false;
 		void syncNow();
+	}
+	function request(delay: number) {
+		requested = true;
+		if (timer !== null) clearTimeout(timer);
+		timer = setTimeout(flush, delay);
+	}
+	const onSaved = () => request(SAVE_SYNC_DELAY_MS);
+	const onOnline = () => request(0);
+	const onVisible = () => {
+		if (document.visibilityState === 'visible') request(0);
 	};
-	window.addEventListener('online', handler);
-	const interval = setInterval(handler, 60_000);
+	const onIdle = () => {
+		if (requested && timer === null && !get(syncing) && !get(sessionChanging)) request(0);
+	};
+	savedListeners.add(onSaved);
+	const unsubscribeSync = syncing.subscribe(onIdle);
+	const unsubscribeSession = sessionChanging.subscribe(onIdle);
+	window.addEventListener('online', onOnline);
+	document.addEventListener('visibilitychange', onVisible);
+	const interval = setInterval(onOnline, 60_000);
+	if (get(pendingCount) > 0) request(0);
 	return () => {
-		window.removeEventListener('online', handler);
+		savedListeners.delete(onSaved);
+		unsubscribeSync();
+		unsubscribeSession();
+		window.removeEventListener('online', onOnline);
+		document.removeEventListener('visibilitychange', onVisible);
+		if (timer !== null) clearTimeout(timer);
 		clearInterval(interval);
 	};
 }
