@@ -1,11 +1,13 @@
 import { farmDate, addDateDays } from './dates';
-import { db, type Animal, type Milking, type Weighing } from './db';
+import { db, type Animal, type Milking, type Weighing, type DailyMilkProduction } from './db';
 
 export interface MilkDayRow {
 	date: string;
-	am: number;
-	pm: number;
+	am: number | null;
+	pm: number | null;
 	total: number;
+	source: 'daily' | 'individual';
+	hasIndividual: boolean;
 }
 
 export interface MilkCowRow {
@@ -44,16 +46,31 @@ export async function milkByDay(
 	const milkings = (await db.milkings.toArray()).filter(
 		(m) => ids.has(m.animal) && m.date >= from && m.date <= to
 	);
+	const daily = (await db.daily_milk.where('farm').equals(farmId).toArray()).filter((r) => r.date >= from && r.date <= to);
+	const pending = new Set((await db.outbox.toArray()).filter((r) => r.collection === 'daily_milk').map((r) => r.record_id));
+	return milkDayTotals(milkings, daily, pending);
+}
+
+/** A declared farm total replaces the individual sum for its day, including zero. */
+export function milkDayTotals(milkings: Milking[], daily: DailyMilkProduction[], pending = new Set<string>()): MilkDayRow[] {
 	const byDay = new Map<string, MilkDayRow>();
 	for (const m of milkings) {
-		const row = byDay.get(m.date) ?? { date: m.date, am: 0, pm: 0, total: 0 };
-		const liters = parseFloat(m.liters) || 0;
-		if (m.shift === 'AM') row.am += liters;
-		else row.pm += liters;
-		row.total += liters;
+		const row = byDay.get(m.date) ?? { date: m.date, am: 0, pm: 0, total: 0, source:'individual', hasIndividual:true };
+		const cents = Math.round(Number(m.liters) * 100);
+		if (m.shift === 'AM') row.am = (Math.round((row.am ?? 0)*100) + cents)/100;
+		else row.pm = (Math.round((row.pm ?? 0)*100) + cents)/100;
+		row.total = (Math.round(row.total*100) + cents)/100;
 		byDay.set(m.date, row);
 	}
+	for (const record of [...daily].sort((a,b) => Number(pending.has(a.id))-Number(pending.has(b.id)) || (a.updated_at ?? '').localeCompare(b.updated_at ?? '') || a.id.localeCompare(b.id))) {
+		byDay.set(record.date,{date:record.date,am:null,pm:null,total:Number(record.liters),source:'daily',hasIndividual:byDay.get(record.date)?.hasIndividual ?? false});
+	}
 	return [...byDay.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export async function exportMilkTotalsCsv(farmId: string, from = '0001-01-01', to = farmDate()): Promise<void> {
+	const rows = await milkByDay(farmId,from,to);
+	downloadCsv('produccion-diaria.csv',toCsv(['fecha','origen','manana_litros','tarde_litros','total_litros'],rows.map((r) => [r.date,r.source === 'daily' ? 'Total diario de finca' : 'Registros individuales',r.am,r.pm,r.total])));
 }
 
 export async function milkByCow(

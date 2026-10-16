@@ -8,7 +8,7 @@
 
 	const actions = [
 		{ href: '/weighing', label: 'Pesaje rápido', icon: Scale },
-		{ href: '/milking', label: 'Ordeño', icon: Milk },
+		{ href: '/milking', label: 'Leche total del día', icon: Milk },
 		{ href: '/reproduction', label: 'Evento reproductivo', icon: HeartPulse },
 		{ href: '/health', label: 'Evento sanitario', icon: Syringe },
 		{ href: '/animals/new', label: 'Nuevo animal', icon: PlusCircle },

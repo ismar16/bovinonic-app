@@ -231,7 +231,7 @@
 						</ul>
 					</section>
 					<section class="panel p-5 sm:p-7">
-						<h2 class="section-title mb-3">Ordeños</h2>{#if animal.category === 'cow_lactating'}<a class="back-link" href="/milking?animal={animal.id}">Registrar ordeño</a>{/if}
+						<h2 class="section-title mb-3">Ordeños</h2>{#if animal.category === 'cow_lactating'}<a class="back-link" href="/milking/individual?animal={animal.id}">Registrar ordeño</a>{/if}
 						<ul class="flex flex-col gap-1">
 							{#each milkings as m (m.id)}
 								<li class="flex flex-wrap justify-between gap-2">

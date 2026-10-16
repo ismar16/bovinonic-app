@@ -66,7 +66,7 @@
 		disabled={exporting !== ''}
 		class="quiet-button w-full sm:w-auto"
 	>
-		{exporting === 'milkings' ? 'Generando…' : 'Ordeños'}
+		{exporting === 'milkings' ? 'Generando…' : 'Ordeños por animal'}
 	</button>
 
 	<button

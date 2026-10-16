@@ -79,7 +79,7 @@ export async function me(): Promise<User> {
 }
 
 export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'lots' | 'animals' | 'agreements' | 'sales' | 'sale_payments' | 'sale_expenses' | 'weighings'
-	| 'milkings' | 'reproductive_events' | 'health_events';
+	| 'milkings' | 'daily_milk' | 'reproductive_events' | 'health_events';
 
 export type PullResponse = Partial<Record<PullCollection, unknown[]>> & { sync_cursor?: string };
 

@@ -15,7 +15,7 @@ LABELS = (
     'livestock.SaleExpense', 'livestock.SalePayment', 'livestock.AnimalSale',
     'livestock.AnimalAgreement',
     'health.HealthEvent', 'reproduction.ReproductiveEvent',
-    'production.Milking', 'production.Weighing', 'livestock.Animal',
+    'production.DailyMilkProduction', 'production.Milking', 'production.Weighing', 'livestock.Animal',
     'livestock.Brand', 'livestock.Owner', 'livestock.Paddock', 'livestock.AnimalLot',
 )
 

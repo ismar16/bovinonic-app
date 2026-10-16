@@ -53,3 +53,14 @@ class Milking(AnimalEvent):
 
     def __str__(self):
         return f"{self.animal.tag} @ {self.date} {self.shift}: {self.liters} L"
+
+
+class DailyMilkProduction(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='daily_milk')
+    date = models.DateField()
+    liters = models.DecimalField(max_digits=8, decimal_places=2)
+    notes = models.CharField(max_length=1000, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['farm', 'date'], name='uniq_daily_milk_farm_date')]
+        indexes = [models.Index(fields=['farm', 'updated_at'])]

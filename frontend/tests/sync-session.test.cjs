@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings',
+  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v5', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v6', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v5')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v6')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -283,7 +283,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v5', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v6', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -572,4 +572,33 @@ test('later expense sync enforces admin, survives failure and pulls adjusted sal
   api.pull=async()=>({sale_expenses:[lateExpense()],sales:[saleHelpers().saleWithExpenses(confirmedSale(),[lateExpense()])],agreements:[{...draftAgreement(),settlement:{expenses:'2000.00'}}]});
   await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal((await db.sales.get('sale')).lines[0].settlement.expenses,'2000.00');
   assert.equal((await db.agreements.get('agreement')).settlement.expenses,'2000.00');
+});
+
+test('farm daily milk replaces individual totals for the same day, including zero, without fake shifts',()=>{
+  const {milkDayTotals}=load('reports',{'./db':{db:{}},'./dates':load('dates',{})});
+  const rows=milkDayTotals([{id:'m1',animal:'cow',date:'2026-10-01',shift:'AM',liters:'10.10'},{id:'m2',animal:'cow',date:'2026-10-01',shift:'PM',liters:'5.20'},{id:'m3',animal:'cow',date:'2026-10-02',shift:'AM',liters:'12'}],
+    [{id:'daily',farm:'farm-a',date:'2026-10-01',liters:'100.25',notes:''}]);
+  assert.equal(rows.find(r=>r.date==='2026-10-01').total,100.25);assert.equal(rows.find(r=>r.date==='2026-10-01').am,null);
+  assert.equal(rows.find(r=>r.date==='2026-10-01').hasIndividual,true);assert.equal(rows.find(r=>r.date==='2026-10-02').total,12);
+  const zero=milkDayTotals([{animal:'cow',date:'2026-10-01',shift:'AM',liters:'10'}],[{id:'zero',date:'2026-10-01',liters:'0'}]);
+  assert.equal(zero[0].total,0);assert.equal(zero[0].source,'daily');
+});
+
+test('daily milk report chooses one pending total while another device canonical id is being merged',()=>{
+  const {milkDayTotals}=load('reports',{'./db':{db:{}},'./dates':load('dates',{})});
+  const rows=milkDayTotals([],[{id:'server',date:'2026-10-01',liters:'100',updated_at:'2026-10-16T10:00:00Z'},{id:'pending',date:'2026-10-01',liters:'125.50',updated_at:'2026-10-15T10:00:00Z'}],new Set(['pending']));
+  assert.equal(rows.length,1);assert.equal(rows[0].total,125.5);
+});
+
+test('daily milk individual fallback adds exact cents',()=>{
+  const {milkDayTotals}=load('reports',{'./db':{db:{}},'./dates':load('dates',{})});
+  const rows=milkDayTotals([{date:'2026-10-01',shift:'AM',liters:'0.10'},{date:'2026-10-01',shift:'AM',liters:'0.20'}],[]);
+  assert.equal(rows[0].total,0.3);assert.equal(rows[0].am,0.3);
+});
+
+test('operator daily milk persists offline and server id merge keeps a newer pending correction',async()=>{
+  const {sync,db,stores,api}=setup();stores.currentFarm.set({id:'farm-a',role:'operator'});
+  await sync.enqueue('daily_milk',{id:'local',date:'2026-10-01',liters:'100.00',notes:''});
+  api.pushBatch=async(_farm,data)=>{assert.equal(data.daily_milk[0].farm,'farm-a');await sync.enqueue('daily_milk',{id:'local',date:'2026-10-01',liters:'125.00',notes:'Correction'});return {daily_milk:[{id:'local',status:'updated',merged_into:'canonical'}]};};
+  await sync.syncNow();assert.equal(await db.outbox.count(),1);assert.equal((await db.daily_milk.get('local')).liters,'125.00');
 });

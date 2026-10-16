@@ -3,9 +3,10 @@
 	import Notice from '$lib/components/Notice.svelte';
 	import { errorMessage } from '$lib/forms';
 	import { goto } from '$app/navigation';
+	import { liveQuery } from 'dexie';
 	import { onMount } from 'svelte';
 
-	import { daysAgo, milkByCow, milkByDay, type MilkCowRow, type MilkDayRow } from '$lib/reports';
+	import { daysAgo, milkByCow, milkByDay, exportMilkTotalsCsv, type MilkCowRow, type MilkDayRow } from '$lib/reports';
 	import { currentFarm } from '$lib/stores';
 
 	let error = $state('');
@@ -22,12 +23,10 @@
 		byCow = await milkByCow(farm.id, from, to); } catch (cause) { error = errorMessage(cause); }
 	}
 
-	onMount(async () => {
-		if (!$currentFarm) {
-			await goto('/');
-			return;
-		}
-		await load();
+	onMount(() => {
+		if (!$currentFarm) { void goto('/'); return; }
+		const subscription = liveQuery(load).subscribe({ error(cause) { error=errorMessage(cause); } });
+		return () => subscription.unsubscribe();
 	});
 
 	let totalPeriod = $derived(
@@ -38,7 +37,7 @@
 <svelte:head><title>Producción lechera · Gestión Ganadera</title></svelte:head>
 
 <div class="workspace-page space-y-6">
-	<PageHeader title="Producción lechera" description="Totales por fecha y animal, calculados con los registros de este dispositivo." backHref="/reports" /><Notice tone="error" message={error} />
+	<PageHeader title="Producción lechera" description="Producción total por fecha. Si hay un total diario de la finca, se usa ese valor; los registros individuales se conservan como detalle sin duplicar litros." backHref="/reports" /><Notice tone="error" message={error} />
 
 	<div class="grid grid-cols-3 gap-2">
 		{#each [7, 14, 30] as days}
@@ -55,7 +54,7 @@
 		{/each}
 	</div>
 
-	<p class="panel p-6 text-center font-serif text-3xl">
+	<div class="flex flex-wrap gap-3"><a class="action-button" href="/milking">Registrar total diario</a><button class="quiet-button" type="button" onclick={async () => { try { if($currentFarm) await exportMilkTotalsCsv($currentFarm.id,daysAgo(range-1),daysAgo(0)); } catch(cause) { error=errorMessage(cause); } }}>Descargar totales CSV</button></div><p class="panel p-6 text-center font-serif text-3xl">
 		Total del período: {totalPeriod} L
 	</p>
 
@@ -65,7 +64,7 @@
 			{#each byDay as row (row.date)}
 				<li class="panel flex flex-wrap items-center justify-between gap-3 p-4">
 					<span class="font-bold">{row.date}</span>
-					<span>AM {row.am} · PM {row.pm}</span>
+					<span class="text-sm">{row.source === 'daily' ? 'Total diario de la finca' : `Registros individuales · AM ${row.am} · PM ${row.pm}`}{row.source === 'daily' && row.hasIndividual ? ' · Detalle individual conservado sin sumarlo' : ''}</span>
 					<span class="font-semibold">{row.total} L</span>
 				</li>
 			{:else}
@@ -77,7 +76,7 @@
 	</section>
 
 	<section>
-		<h2 class="mb-2 text-lg font-semibold">Por vaca</h2>
+		<h2 class="mb-2 text-lg font-semibold">Detalle individual (opcional)</h2><p class="field-help mb-3">Solo muestra mediciones por animal. Los totales de finca no se reparten entre las vacas y este detalle no se suma al total diario.</p>
 		<ul class="flex flex-col gap-1">
 			{#each byCow as row (row.animal.id)}
 				<li class="panel flex flex-wrap items-center justify-between gap-3 p-4">

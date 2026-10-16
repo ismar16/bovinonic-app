@@ -10,7 +10,7 @@ from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
 from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
 from apps.livestock.agreements import amount, calculate_settlement
-from apps.production.models import Milking, Weighing
+from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import ReproductiveEvent
 
 
@@ -260,6 +260,29 @@ class MilkingSerializer(AnimalEventSerializer):
         fields = ["id", "animal", "date", "shift", "liters", "updated_at", "historical_warning"]
         read_only_fields = ["updated_at", "historical_warning"]
         validators = []
+
+
+class DailyMilkProductionSerializer(FarmScopedSerializer):
+    liters = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal('0'))
+
+    class Meta:
+        model = DailyMilkProduction
+        fields = ['id', 'farm', 'date', 'liters', 'notes', 'updated_at']
+        read_only_fields = ['updated_at']
+        validators = []
+
+    def validate(self, attrs):
+        if attrs['date'] > timezone.localdate():
+            raise serializers.ValidationError('La fecha de producción no puede ser futura.')
+        attrs.setdefault('notes', '')
+        try:
+            record_id = UUID(str(self.context['record_id']))
+        except (ValueError, KeyError):
+            raise serializers.ValidationError('Identificador de producción inválido.')
+        existing = DailyMilkProduction.objects.filter(pk=record_id).first()
+        if existing and (existing.farm_id != self.context['farm_id'] or existing.date != attrs['date']):
+            raise serializers.ValidationError('El registro pertenece a otra finca o fecha. Abrí el día que querés corregir.')
+        return attrs
 
 
 class ReproductiveEventSerializer(AnimalEventSerializer):

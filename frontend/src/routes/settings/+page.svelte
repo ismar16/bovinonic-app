@@ -10,7 +10,7 @@
     import Notice from '$lib/components/Notice.svelte';
     let pending = $state<OutboxRecord[]>([]);
     const roles: Record<string,string> = { admin:'Administrador', technician:'Técnico',operator:'Operador de corral' };
-    const collections: Record<string,string> = { animals:'Animales', owners:'Propietarios', brands:'Fierros',paddocks:'Potreros',lots:'Lotes',agreements:'Acuerdos',milkings:'Ordeños',weighings:'Pesajes',health_events:'Sanidad',reproductive_events:'Reproducción' };
+    const collections: Record<string,string> = { animals:'Animales', owners:'Propietarios', brands:'Fierros',paddocks:'Potreros',lots:'Lotes',agreements:'Acuerdos',milkings:'Ordeños individuales',daily_milk:'Producción diaria',weighings:'Pesajes',health_events:'Sanidad',reproductive_events:'Reproducción' };
     onMount(() => { const subscription = liveQuery(() => db.outbox.toArray()).subscribe((rows) => pending = rows); return () => subscription.unsubscribe(); });
 </script>
 <svelte:head><title>Ajustes · Bovinonic</title></svelte:head>

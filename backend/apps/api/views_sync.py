@@ -11,7 +11,7 @@ from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
 from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
 from apps.livestock.sales import apply_sale, refresh_sale_agreements
-from apps.production.models import Milking, Weighing
+from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
     GESTATION_DAYS,
@@ -29,6 +29,7 @@ from .serializers import (
     BrandSerializer,
     HealthEventSerializer,
     MilkingSerializer,
+    DailyMilkProductionSerializer,
     OwnerSerializer,
     PaddockSerializer,
     ReproductiveEventSerializer,
@@ -44,6 +45,7 @@ PULL_COLLECTIONS = {
     "agreements": (AnimalAgreement, AnimalAgreementSerializer),
     "weighings": (Weighing, WeighingSerializer),
     "milkings": (Milking, MilkingSerializer),
+    'daily_milk': (DailyMilkProduction, DailyMilkProductionSerializer),
     "reproductive_events": (ReproductiveEvent, ReproductiveEventSerializer),
     "health_events": (HealthEvent, HealthEventSerializer),
     'sales': (AnimalSale, AnimalSaleSerializer),
@@ -60,6 +62,7 @@ WRITE_COLLECTIONS = {
     "agreements": (AnimalAgreement, AnimalAgreementSerializer, FarmMembership.Role.ADMIN),
     "weighings": (Weighing, WeighingSerializer, FarmMembership.Role.OPERATOR),
     "milkings": (Milking, MilkingSerializer, FarmMembership.Role.OPERATOR),
+    'daily_milk': (DailyMilkProduction, DailyMilkProductionSerializer, FarmMembership.Role.OPERATOR),
     "reproductive_events": (
         ReproductiveEvent,
         ReproductiveEventSerializer,
@@ -188,6 +191,30 @@ class SyncBatchView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
                 for name, (model, serializer_class, records) in authorized.items():
+                    if model is DailyMilkProduction:
+                        entries = []
+                        for record in records:
+                            record_id = record.get('id')
+                            data = {k: v for k, v in record.items() if k != 'id'}
+                            data['farm'] = str(farm_id)
+                            serializer = serializer_class(data=data, context={'farm_id': farm_id, 'record_id': record_id})
+                            if not serializer.is_valid():
+                                errors[name] = [{'id': record_id, 'error': serializer.errors}]
+                                raise ValueError('Revisá la producción diaria.')
+                            attrs = serializer.validated_data
+                            existing = DailyMilkProduction.objects.filter(farm_id=farm_id, date=attrs['date']).first()
+                            entry = {'id': str(record_id), 'status': 'updated' if existing else 'created'}
+                            if existing:
+                                if str(existing.id) != str(record_id):
+                                    entry['merged_into'] = str(existing.id)
+                                    entry['conflict'] = existing.liters != attrs['liters'] or existing.notes != attrs['notes']
+                                existing.liters, existing.notes = attrs['liters'], attrs['notes']
+                                existing.save()
+                            else:
+                                DailyMilkProduction.objects.create(id=record_id, **attrs)
+                            entries.append(entry)
+                        results[name] = entries
+                        continue
                     if model in (AnimalSale, SalePayment, SaleExpense):
                         entries = []
                         for record in records:

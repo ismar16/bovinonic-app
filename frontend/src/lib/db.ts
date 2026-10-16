@@ -60,6 +60,10 @@ export interface Weighing {
 	updated_at?: string;
 }
 
+export interface DailyMilkProduction {
+	id: string; farm: string; date: string; liters: string; notes: string; updated_at?: string;
+}
+
 export interface Milking {
 	id: string;
 	animal: string;
@@ -108,6 +112,7 @@ export interface OutboxRecord {
 		| 'sale_expenses'
 		| 'weighings'
 		| 'milkings'
+		| 'daily_milk'
 		| 'reproductive_events'
 		| 'health_events';
 	record_id: string;
@@ -188,6 +193,7 @@ class GanaderiaDB extends Dexie {
 	paddocks!: EntityTable<Paddock, 'id'>;
 	animals!: EntityTable<Animal, 'id'>;
 	weighings!: EntityTable<Weighing, 'id'>;
+	daily_milk!: EntityTable<DailyMilkProduction, 'id'>;
 	milkings!: EntityTable<Milking, 'id'>;
 	reproductive_events!: EntityTable<ReproductiveEvent, 'id'>;
 	health_events!: EntityTable<HealthEvent, 'id'>;
@@ -216,6 +222,7 @@ class GanaderiaDB extends Dexie {
 		this.version(3).stores({ agreements: 'id, farm, status, start_date, updated_at' });
 		this.version(4).stores({ sales: 'id, farm, date, updated_at', sale_payments: 'id, farm, sale, date, updated_at' });
 		this.version(5).stores({ sale_expenses: 'id, farm, sale, animal, date, updated_at' });
+		this.version(6).stores({ daily_milk: 'id, farm, date, [farm+date], updated_at' });
 	}
 }
 
