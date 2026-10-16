@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { liveQuery } from 'dexie';
 
-	import { Pencil, ArrowLeft, Beef, MapPin } from 'lucide-svelte';
+	import { Pencil, ArrowLeft, ArrowRightLeft } from 'lucide-svelte';
 	import { currentFarm } from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -125,7 +125,7 @@
 					class="mb-4 h-48 w-full rounded-xl object-cover sm:h-64"
 				/>
 			{/if}
-			<div class="flex items-start justify-between gap-2">
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div>
 					<p class="eyebrow mb-2">Ficha individual del animal</p><h1 class="page-title">{animal.tag}</h1>
 					<p class="mt-2 font-serif text-xl text-[#7a8969]">{animal.name || 'Sin nombre'}</p>
@@ -133,7 +133,7 @@
 						{animal.sex} · {CATEGORY_LABELS[animal.category] ?? animal.category}
 					</p>
 				</div>
-				<div class="flex flex-col items-end gap-2">{#if pending}<span class="status-pill pending">Cambios pendientes de envío</span>{/if}
+				<div class="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">{#if pending}<span class="status-pill pending">Cambios pendientes de envío</span>{/if}
 					<Badge
 						class={animal.status === 'active'
 							? 'bg-green-700 text-white'
@@ -159,7 +159,7 @@
             {#each [{label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
         </div>
         <Tabs.Root value="general">
-			<Tabs.List class="grid w-full grid-cols-4">
+			<Tabs.List class="grid h-auto min-h-11 w-full grid-cols-4">
 				<Tabs.Trigger value="general">General</Tabs.Trigger>
 				<Tabs.Trigger value="production">Producción</Tabs.Trigger>
 				<Tabs.Trigger value="reproduction">Repro</Tabs.Trigger>
@@ -186,16 +186,16 @@
 							</ul>
 						{/if}
 					</section>
-					{#if canEdit}<div class="grid grid-cols-2 gap-2">
+					{#if canEdit}<div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
 						<a
 							href="/animals/{animal.id}/edit"
-							class="flex h-14 items-center justify-center rounded-xl border border-[#dde3d3] bg-white font-extrabold"
-							>Editar datos</a
+							class="quiet-button min-h-12 w-full whitespace-nowrap"
+							><Pencil class="h-4 w-4 shrink-0" /> Editar datos</a
 						>
 						<a
 							href="/animals/{animal.id}/status"
-							class="flex h-14 items-center justify-center rounded-md bg-red-700 font-extrabold text-white"
-							>Cambio de estado</a
+							class="flex min-h-12 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 hover:bg-red-100"
+							><ArrowRightLeft class="h-4 w-4 shrink-0" /> Cambio de estado</a
 						>
 					</div>{/if}
 				</div>
