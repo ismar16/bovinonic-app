@@ -53,6 +53,9 @@ class Paddock(TimeStampedModel):
         Farm, on_delete=models.CASCADE, related_name="paddocks", verbose_name=_("finca")
     )
     name = models.CharField(_("nombre"), max_length=100)
+    area = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    area_unit = models.CharField(max_length=2, choices=[('mz', 'Manzanas'), ('ha', 'Hectáreas'), ('m2', 'Metros cuadrados')], default='mz')
+    max_occupation_days = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -64,6 +67,18 @@ class Paddock(TimeStampedModel):
 
     def __str__(self):
         return f"{self.name} ({self.farm})"
+
+
+class PaddockMovement(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='paddock_movements')
+    date = models.DateField()
+    destination = models.ForeignKey(Paddock, on_delete=models.PROTECT, related_name='movements')
+    lot = models.ForeignKey('AnimalLot', null=True, blank=True, on_delete=models.SET_NULL)
+    animals = models.JSONField(default=list)
+    notes = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at'])]
 
 
 class AnimalLot(TimeStampedModel):
@@ -82,6 +97,8 @@ class AnimalLot(TimeStampedModel):
 
 
 class Animal(TimeStampedModel):
+    paddock_since = models.DateField(null=True, blank=True, editable=False)
+    paddock_movement = models.UUIDField(null=True, editable=False)
     class Sex(models.TextChoices):
         MALE = "M", _("Macho")
         FEMALE = "H", _("Hembra")

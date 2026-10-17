@@ -25,6 +25,9 @@ export interface Brand {
 }
 
 export interface Paddock {
+	area?: string | null;
+	area_unit?: 'mz' | 'ha' | 'm2';
+	max_occupation_days?: number | null;
 	id: string;
 	farm: string;
 	name: string;
@@ -32,6 +35,8 @@ export interface Paddock {
 }
 
 export interface Animal {
+	paddock_since?: string | null;
+	paddock_movement?: string | null;
 	id: string;
 	farm: string;
 	tag: string;
@@ -108,6 +113,7 @@ export interface OutboxRecord {
 		| 'owners'
 		| 'brands'
 		| 'paddocks'
+		| 'paddock_movements'
 		| 'lots'
 		| 'agreements'
 		| 'sales'
@@ -126,6 +132,12 @@ export interface OutboxRecord {
 export interface SyncMeta {
 	key: string;
 	value: string;
+}
+
+export interface PaddockMovement {
+	id: string; farm: string; date: string; destination: string; lot: string | null; notes: string;
+	animals: { animal: string; from_paddock: string | null; previous_movement: string | null }[];
+	updated_at?: string;
 }
 
 export interface AnimalLot {
@@ -186,6 +198,7 @@ export interface SalePayment {
 }
 
 class GanaderiaDB extends Dexie {
+	paddock_movements!: EntityTable<PaddockMovement, 'id'>;
 	sale_expenses!: EntityTable<SaleExpense, 'id'>;
 	sales!: EntityTable<AnimalSale, 'id'>;
 	sale_payments!: EntityTable<SalePayment, 'id'>;
@@ -227,6 +240,7 @@ class GanaderiaDB extends Dexie {
 		this.version(4).stores({ sales: 'id, farm, date, updated_at', sale_payments: 'id, farm, sale, date, updated_at' });
 		this.version(5).stores({ sale_expenses: 'id, farm, sale, animal, date, updated_at' });
 		this.version(6).stores({ daily_milk: 'id, farm, date, [farm+date], updated_at' });
+		this.version(7).stores({ paddock_movements: 'id, farm, date, destination, lot, updated_at' });
 	}
 }
 

@@ -72,7 +72,7 @@
 			</div></section>
 			<section class="form-section"><h2 class="section-title">Ubicación y propiedad</h2><div class="form-grid">
 				<label class="field-label">Lote<select class="field" bind:value={lot}><option value="">Sin lote</option>{#each lots as l}<option value={l.id}>{l.name}</option>{/each}</select><a class="field-help underline" href="/lots">Administrar lotes de animales</a></label>
-				<label class="field-label">Potrero<select class="field" bind:value={paddock}><option value="">Sin asignar</option>{#each paddocks as p}<option value={p.id}>{p.name}</option>{/each}</select></label>
+				{#if mode === 'edit'}<div class="field-label">Potrero<p class="field">{paddocks.find((p) => p.id === paddock)?.name ?? 'Sin asignar'}</p><a class="field-help underline" href="/paddocks/movements/new?animal={original?.id}">Mover a otro potrero</a></div>{:else}<label class="field-label">Potrero<select class="field" bind:value={paddock}><option value="">Sin asignar</option>{#each paddocks as p}<option value={p.id}>{p.name}</option>{/each}</select></label>{/if}
 				<label class="field-label">Propietario<select class="field" bind:value={owner}><option value="">Sin asignar</option>{#each owners as o}<option value={o.id}>{o.name}</option>{/each}</select></label>
 				<label class="field-label">Fierro<select class="field" bind:value={brand}><option value="">Orejano (sin fierro)</option>{#each brands as b}<option value={b.id}>{b.code}</option>{/each}</select></label>
 			</div>{#if suggested && suggested.id !== brand}<button type="button" class="back-link mb-0" onclick={() => brand = suggested.id}>Usar el fierro {suggested.code} del propietario</button>{/if}

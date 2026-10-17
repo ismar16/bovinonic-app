@@ -7,4 +7,4 @@ export type CatalogKind = keyof typeof catalogConfig;
 export function catalogKind(value?: string): CatalogKind | null {
 	return value && Object.hasOwn(catalogConfig, value) ? value as CatalogKind : null;
 }
-export interface CatalogRecord { id: string; farm: string; name?: string; code?: string; id_number?: string; phone?: string; title_owner?: string | null; updated_at?: string; }
+export interface CatalogRecord { id: string; farm: string; name?: string; code?: string; id_number?: string; phone?: string; title_owner?: string | null; updated_at?: string; area?: string | null; area_unit?: 'mz' | 'ha' | 'm2'; max_occupation_days?: number | null; }

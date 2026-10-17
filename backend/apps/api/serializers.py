@@ -8,7 +8,7 @@ from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement
 from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import ReproductiveEvent
@@ -28,7 +28,7 @@ class FarmScopedSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         farm_id = self.context.get("farm_id")
         if farm_id is not None:
-            for name in ("animal", "mother", "father", "paddock", "owner", "brand", "title_owner", "lot"):
+            for name in ("animal", "mother", "father", "paddock", "destination", "owner", "brand", "title_owner", "lot"):
                 field = self.fields.get(name)
                 if field is not None and field.queryset is not None:
                     field.queryset = field.queryset.filter(farm_id=farm_id)
@@ -50,9 +50,11 @@ class BrandSerializer(FarmScopedSerializer):
 
 
 class PaddockSerializer(serializers.ModelSerializer):
+    area = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('.01'), allow_null=True, required=False)
+    max_occupation_days = serializers.IntegerField(min_value=1, max_value=3650, allow_null=True, required=False)
     class Meta:
         model = Paddock
-        fields = ["id", "farm", "name", "updated_at"]
+        fields = ["id", "farm", "name", "area", "area_unit", "max_occupation_days", "updated_at"]
         read_only_fields = ["updated_at"]
         validators = []
 
@@ -63,6 +65,50 @@ class AnimalLotSerializer(FarmScopedSerializer):
         fields = ["id", "farm", "name", "description", "updated_at"]
         read_only_fields = ["updated_at"]
         validators = []
+
+
+class PaddockMovementSerializer(FarmScopedSerializer):
+    id = serializers.UUIDField()
+    class Meta:
+        model = PaddockMovement
+        fields = ['id', 'farm', 'date', 'destination', 'lot', 'animals', 'notes', 'updated_at']
+        read_only_fields = ['updated_at']
+
+    def validate(self, attrs):
+        try:
+            record_id = UUID(str(self.context.get('record_id')))
+            farm_id = self.context['farm_id']
+            existing = PaddockMovement.objects.filter(pk=record_id).first()
+            if existing:
+                if existing.farm_id != farm_id or any(getattr(existing, key) != value for key, value in attrs.items()):
+                    raise ValueError('Un traslado confirmado no se puede modificar. Registrá otro movimiento para corregir la ubicación.')
+                return attrs
+            if attrs['date'] > timezone.localdate():
+                raise ValueError('La fecha del traslado no puede ser futura.')
+            rows = attrs['animals']
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 500:
+                raise ValueError('Seleccioná entre 1 y 500 animales por traslado.')
+            ids = [str(UUID(str(row['animal']))) for row in rows]
+            if len(set(ids)) != len(ids):
+                raise ValueError('Hay animales repetidos.')
+            animals = {str(a.id): a for a in Animal.objects.filter(farm_id=farm_id, pk__in=ids)}
+            for row, animal_id in zip(rows, ids):
+                animal = animals.get(animal_id)
+                if not animal or animal.status != 'active':
+                    raise ValueError('Todos los animales deben estar activos y pertenecer a esta finca.')
+                if attrs.get('lot') and animal.lot_id != attrs['lot'].id:
+                    raise ValueError(f'{animal.tag}: ya no pertenece al lote seleccionado.')
+                if set(row) != {'animal', 'from_paddock', 'previous_movement'}:
+                    raise ValueError('Falta la ubicación de origen del animal. Volvé a seleccionar los animales.')
+                if row['from_paddock'] != (str(animal.paddock_id) if animal.paddock_id else None) or row['previous_movement'] != (str(animal.paddock_movement) if animal.paddock_movement else None):
+                    raise ValueError(f'{animal.tag}: su ubicación cambió en otro dispositivo. Revisá el traslado pendiente.')
+                if animal.paddock_id == attrs['destination'].id:
+                    raise ValueError(f'{animal.tag}: ya está en el potrero de destino.')
+                if (animal.birth_date and attrs['date'] < animal.birth_date) or (animal.paddock_since and attrs['date'] < animal.paddock_since):
+                    raise ValueError(f'{animal.tag}: la fecha es anterior al nacimiento o a su último traslado.')
+            return attrs
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise serializers.ValidationError({'movement': str(exc) or 'Revisá el traslado.'})
 
 
 class AnimalAgreementSerializer(FarmScopedSerializer):
@@ -194,6 +240,9 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
 class AnimalSerializer(FarmScopedSerializer):
     def validate(self, attrs):
         record_id = str(self.context.get('record_id', ''))
+        existing = Animal.objects.filter(pk=record_id, farm_id=self.context.get('farm_id')).first() if record_id else None
+        if existing and attrs.get('paddock') != existing.paddock:
+            raise serializers.ValidationError({'paddock': 'La ubicación cambió o requiere un traslado. Sincronizá y usá Mover animales para conservar el historial.'})
         sold = any(r['animal'] == record_id for s in AnimalSale.objects.filter(farm_id=self.context.get('farm_id')) for r in s.lines)
         if sold and (attrs.get('status') != 'sold' or attrs.get('status_changed_at') != Animal.objects.get(pk=record_id).status_changed_at):
             raise serializers.ValidationError('Este animal tiene una venta confirmada y no puede volver al hato activo ni cambiar su fecha de venta.')
@@ -217,9 +266,9 @@ class AnimalSerializer(FarmScopedSerializer):
         fields = [
             "id", "farm", "tag", "name", "sex", "category", "birth_date",
             "mother", "father", "paddock", "owner", "brand", "lot", "status",
-            "status_changed_at", "status_reason", "photo_url", "updated_at",
+            "status_changed_at", "status_reason", "photo_url", "updated_at", "paddock_since", "paddock_movement",
         ]
-        read_only_fields = ["updated_at"]
+        read_only_fields = ["updated_at", "paddock_since", "paddock_movement"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

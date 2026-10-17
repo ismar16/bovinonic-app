@@ -1,17 +1,21 @@
 from uuid import UUID
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .permissions import HasFarmMembership, IsAdmin
-from .serializers import AnimalSaleSerializer, SalePaymentSerializer, SaleExpenseSerializer
-from apps.livestock.models import AnimalSale, SalePayment, SaleExpense
+from .permissions import HasFarmMembership
+from .serializers import AnimalSaleSerializer, SalePaymentSerializer, SaleExpenseSerializer, PaddockMovementSerializer
+from apps.livestock.models import AnimalSale, SalePayment, SaleExpense, PaddockMovement
 
 
 class FinancialReceiptView(APIView):
     """Read one authoritative receipt without uploading a potentially stale outbox."""
-    permission_classes = [HasFarmMembership, IsAdmin]
+    permission_classes = [HasFarmMembership]
 
     def get(self, request):
-        definitions = {'sales': (AnimalSale, AnimalSaleSerializer), 'sale_payments': (SalePayment, SalePaymentSerializer), 'sale_expenses': (SaleExpense, SaleExpenseSerializer)}
+        collection = request.query_params.get('collection')
+        role = request.farm_membership.role
+        if role != 'admin' and not (role == 'technician' and collection == 'paddock_movements'):
+            return Response({'detail': 'Tu rol no permite revisar este registro.'}, status=403)
+        definitions = {'paddock_movements': (PaddockMovement, PaddockMovementSerializer), 'sales': (AnimalSale, AnimalSaleSerializer), 'sale_payments': (SalePayment, SalePaymentSerializer), 'sale_expenses': (SaleExpense, SaleExpenseSerializer)}
         definition = definitions.get(request.query_params.get('collection'))
         try:
             record_id = UUID(request.query_params.get('id', ''))

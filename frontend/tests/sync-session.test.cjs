@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
+  const names = ['owners', 'brands', 'paddocks', 'paddock_movements', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -91,6 +91,57 @@ test('an edit queued during upload survives acknowledgement and download', async
   assert.equal((await db.animals.get('cow')).name, 'Edited while uploading');
 });
 
+test('paddock settings and occupancy preserve unknown entry dates and warn at the limit', () => {
+  const { paddockSettings, occupation } = load('paddocks', { './forms': load('forms', {}) });
+  assert.deepEqual(paddockSettings('5,50','mz','3'), { area:'5.50',area_unit:'mz',max_occupation_days:3 });
+  assert.deepEqual(paddockSettings('','ha',''), { area:null,area_unit:'ha',max_occupation_days:null });
+  for (const args of [['0','mz','3'],['3','acre','3'],['3','ha','0'],['3','ha','1.5'],['3','ha','3651']]) assert.throws(() => paddockSettings(...args));
+  const state=occupation({id:'north',max_occupation_days:3},[{status:'active',paddock:'north',paddock_since:'2026-10-14'},{status:'active',paddock:'north'},{status:'sold',paddock:'north',paddock_since:'2020-01-01'}],'2026-10-17');
+  assert.deepEqual(state,{count:2,days:3,unknown:1,limitReached:true});
+  assert.equal(occupation({id:'empty'},[],'2026-10-17').days,null);
+});
+
+test('movement selection captures origins and revision markers without changing animals or lot', () => {
+  const { movementRows }=load('paddocks',{'./forms':load('forms',{})});
+  const a={id:'cow',tag:'C1',status:'active',lot:'lot',paddock:'north',paddock_movement:'old',paddock_since:'2026-10-15'};
+  assert.deepEqual(movementRows([a],['cow'],'south','2026-10-17','2026-10-17','lot'),[{animal:'cow',from_paddock:'north',previous_movement:'old'}]);
+  assert.equal(a.paddock,'north');assert.equal(a.lot,'lot');
+  for (const args of [[[], 'south','2026-10-17'],[['cow','cow'],'south','2026-10-17'],[['cow'],'north','2026-10-17'],[['cow'],'south','2026-10-14'],[['cow'],'south','2026-10-18']]) assert.throws(()=>movementRows([a],...args,'2026-10-17','lot'));
+  assert.throws(()=>movementRows([{...a,status:'sold'}],['cow'],'south','2026-10-17','2026-10-17','lot'));
+});
+
+test('offline paddock transfers preserve pending history and use server-confirmed animal locations', async () => {
+  const { sync,db,api,stores }=setup(); stores.currentFarm.value.role='technician';
+  await db.animals.put({id:'cow',paddock:'north',lot:'lot'});
+  await sync.enqueue('paddock_movements',{id:'move',date:'2026-10-17',destination:'south',lot:'lot',animals:[{animal:'cow',from_paddock:'north',previous_movement:null}]});
+  assert.equal((await db.animals.get('cow')).paddock,'north');
+  api.pushBatch=async()=>{throw new TypeError('offline');}; await sync.syncNow(); assert.equal(await db.outbox.count(),1);
+  api.pushBatch=async()=>({paddock_movements:[{id:'move',status:'created'}]});
+  api.pull=async()=>({animals:[{id:'cow',paddock:'south',lot:'lot',paddock_since:'2026-10-17'}],paddock_movements:[{id:'move',destination:'south'}]});
+  await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal((await db.animals.get('cow')).paddock,'south');
+  stores.currentFarm.value.role='operator';await assert.rejects(sync.enqueue('paddock_movements',{id:'forbidden'}),/rol/);
+});
+
+test('reviewing a transfer after a lost response retrieves receipt before replacing pending data', async () => {
+  const {sync,db,api,stores}=setup();stores.currentFarm.value.role='technician';
+  await sync.enqueue('paddock_movements',{id:'move',destination:'south'});
+  api.financialReceipt=async()=>({record:{id:'move',destination:'south',updated_at:'confirmed'}});
+  assert.equal(await sync.reviewFinancialPending('paddock_movements','move'),true);
+  assert.equal(await db.outbox.count(),0);assert.equal((await db.paddock_movements.get('move')).updated_at,'confirmed');
+  await assert.rejects(sync.reviewFinancialPending('sales','x'),/rol/);
+});
+
+test('discarding an unconfirmed transfer requires an authoritative response and preserves confirmed history', async () => {
+  const {sync,db,api}=setup();await sync.enqueue('paddock_movements',{id:'move',destination:'south'});
+  api.financialReceipt=async()=>{throw new TypeError('offline');};
+  await assert.rejects(sync.reviewFinancialPending('paddock_movements','move',true));assert.equal(await db.outbox.count(),1);
+  api.financialReceipt=async()=>({record:null});
+  assert.equal(await sync.reviewFinancialPending('paddock_movements','move',true),false);assert.equal(await db.outbox.count(),0);assert.equal(await db.paddock_movements.get('move'),undefined);
+  await sync.enqueue('paddock_movements',{id:'done',destination:'south'});
+  api.financialReceipt=async()=>({record:{id:'done',destination:'south',updated_at:'confirmed'}});
+  assert.equal(await sync.reviewFinancialPending('paddock_movements','done',true),true);assert.equal((await db.paddock_movements.get('done')).updated_at,'confirmed');
+});
+
 test('multiple offline edits to the same record upload only its latest version', async () => {
   const { sync, db, api } = setup();
   await sync.enqueue('animals', { id: 'cow', name: 'First' });
@@ -118,10 +169,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v8', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v9', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v8')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v9')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -290,7 +341,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v8', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v9', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };

@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement
 from apps.livestock.sales import apply_sale, refresh_sale_agreements
 from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import (
@@ -32,11 +32,13 @@ from .serializers import (
     DailyMilkProductionSerializer,
     OwnerSerializer,
     PaddockSerializer,
+    PaddockMovementSerializer,
     ReproductiveEventSerializer,
     WeighingSerializer,
 )
 
 PULL_COLLECTIONS = {
+    'paddock_movements': (PaddockMovement, PaddockMovementSerializer),
     "owners": (Owner, OwnerSerializer),
     "brands": (Brand, BrandSerializer),
     "paddocks": (Paddock, PaddockSerializer),
@@ -76,6 +78,7 @@ WRITE_COLLECTIONS = {
     'sales': (AnimalSale, AnimalSaleSerializer, FarmMembership.Role.ADMIN),
     'sale_payments': (SalePayment, SalePaymentSerializer, FarmMembership.Role.ADMIN),
     'sale_expenses': (SaleExpense, SaleExpenseSerializer, FarmMembership.Role.ADMIN),
+    'paddock_movements': (PaddockMovement, PaddockMovementSerializer, FarmMembership.Role.TECHNICIAN),
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
@@ -191,6 +194,24 @@ class SyncBatchView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
                 for name, (model, serializer_class, records) in authorized.items():
+                    if model is PaddockMovement:
+                        entries = []
+                        for record in records:
+                            record_id = record.get('id')
+                            data = {**record, 'farm': str(farm_id)}
+                            serializer = serializer_class(data=data, context={'farm_id': farm_id, 'record_id': record_id})
+                            if not serializer.is_valid():
+                                errors[name] = [{'id': record_id, 'error': serializer.errors}]
+                                raise ValueError('Revisá el traslado de potrero.')
+                            existing = PaddockMovement.objects.filter(pk=record_id).first()
+                            if not existing:
+                                movement = PaddockMovement.objects.create(**serializer.validated_data)
+                                Animal.objects.filter(farm_id=farm_id, pk__in=[r['animal'] for r in movement.animals]).update(
+                                    paddock=movement.destination, paddock_since=movement.date,
+                                    paddock_movement=movement.id, updated_at=timezone.now())
+                            entries.append({'id': str(record_id), 'status': 'updated' if existing else 'created'})
+                        results[name] = entries
+                        continue
                     if model is DailyMilkProduction:
                         entries = []
                         for record in records:

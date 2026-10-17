@@ -54,7 +54,7 @@
 	{#each items as item (item.href)}
 		{@const active = item.href === '/' ? path === '/' : item.href === '/herd'
 			? path.startsWith('/herd') || path.startsWith('/animals/') || path.startsWith('/lots') || path.startsWith('/agreements')
-			: item.href === '/operations' ? ['/operations', '/sales', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
+			: item.href === '/operations' ? ['/operations', '/paddocks', '/sales', '/milking', '/weighing', '/health', '/reproduction'].some((p) => path.startsWith(p))
 			: path.startsWith(item.href)}
 		<a
 			href={item.href}
