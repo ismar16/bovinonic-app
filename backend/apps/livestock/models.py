@@ -1,4 +1,5 @@
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Max
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import Farm, TimeStampedModel
@@ -206,6 +207,7 @@ class AnimalAgreement(TimeStampedModel):
 
 
 class AnimalSale(TimeStampedModel):
+    number = models.PositiveIntegerField(null=True, editable=False)
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='animal_sales')
     date = models.DateField()
     buyer = models.CharField(max_length=150)
@@ -217,6 +219,23 @@ class AnimalSale(TimeStampedModel):
 
     class Meta:
         indexes = [models.Index(fields=['farm', 'updated_at'])]
+        constraints = [models.UniqueConstraint(fields=['farm', 'number'], name='uniq_sale_number_per_farm')]
+
+    @property
+    def reference(self):
+        return f'V-{self.number:06d}' if self.number is not None else None
+
+    def save(self, *args, **kwargs):
+        if self.number is not None:
+            return super().save(*args, **kwargs)
+        # Same lock as sync: offline devices receive distinct consecutive numbers.
+        with transaction.atomic():
+            Farm.objects.select_for_update().get(pk=self.farm_id)
+            last = type(self).objects.filter(farm_id=self.farm_id).aggregate(last=Max('number'))['last'] or 0
+            self.number = last + 1
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'number'}
+            return super().save(*args, **kwargs)
 
 
 class SalePayment(TimeStampedModel):

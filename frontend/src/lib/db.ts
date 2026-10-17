@@ -155,7 +155,7 @@ export interface AnimalAgreement {
 	start_date: string; end_date: string | null; status: 'active' | 'settled'; notes: string;
 	animals: AgreementAnimal[]; expenses: AgreementExpense[]; settlement?: AgreementSettlement | null;
 	accept_loss?: boolean; updated_at?: string;
-	sale_receipts?: { sale: string; date: string; animals: string[] }[];
+	sale_receipts?: { sale: string; reference?: string | null; date: string; animals: string[] }[];
 }
 
 export interface SaleLine {
@@ -169,6 +169,7 @@ export interface SaleLine {
 	owner_name?: string; kind?: string | null; initial_weight?: string | null; owner_share?: string;
 }
 export interface AnimalSale {
+	number?: number | null; reference?: string | null;
 	id: string; farm: string; date: string; buyer: string; buyer_phone: string; currency: 'NIO' | 'USD';
 	notes: string; lines: SaleLine[]; total?: string; updated_at?: string; accept_loss?: boolean;
 }

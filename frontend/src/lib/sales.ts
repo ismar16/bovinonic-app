@@ -5,6 +5,11 @@ import { farmDate } from './dates';
 
 export const paymentMethods = { cash: 'Efectivo', transfer: 'Transferencia', other: 'Otro' };
 
+export function saleReference(sale: Pick<AnimalSale, 'number' | 'reference'>): string {
+	if (Number.isSafeInteger(sale.number) && (sale.number ?? 0) > 0) return `V-${String(sale.number).padStart(6,'0')}`;
+	return 'Pendiente de numeración';
+}
+
 /** Rebuild from receipt terms, never subtract expenses from an already adjusted balance. */
 export function saleWithExpenses(input: AnimalSale, expenses: SaleExpense[]): AnimalSale {
 	const sale = structuredClone(input);

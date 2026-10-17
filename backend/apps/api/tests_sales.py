@@ -50,6 +50,39 @@ class SaleApiTests(TestCase):
         self.assertEqual(self.push(sales=[self.sale()]).status_code,400)
         self.assertEqual(AnimalSale.objects.count(),1)
 
+    def test_sale_numbers_are_server_assigned_stable_and_separate_per_farm(self):
+        self.login('boss')
+        first = self.sale(number=999, reference='FORGED')
+        self.assertEqual(self.push(sales=[first]).status_code,200)
+        sale = AnimalSale.objects.get(pk=first['id'])
+        self.assertEqual(sale.number,1); self.assertEqual(sale.reference,'V-000001')
+        self.assertEqual(self.push(sales=[first]).status_code,200)
+        another=Animal.objects.create(farm=self.farm,tag='NUMBER-2',sex='M',category='calf')
+        second=self.sale(another)
+        self.assertEqual(self.push(sales=[second]).status_code,200)
+        self.assertEqual(AnimalSale.objects.get(pk=second['id']).number,2)
+        other_farm=Farm.objects.create(name='Other numbered farm')
+        other=AnimalSale.objects.create(farm=other_farm,date='2026-10-01',buyer='Test',currency='NIO',lines=[],total=0)
+        self.assertEqual(other.number,1)
+        response=self.client.get('/api/sales/receipt',{'farm':str(self.farm.id),'collection':'sales','id':first['id']})
+        self.assertEqual(response.data['record']['reference'],'V-000001')
+
+    def test_existing_sales_receive_numbers_without_changing_financial_data(self):
+        import importlib
+        from types import SimpleNamespace
+        from django.apps import apps
+        from django.db import connection
+        late=AnimalSale.objects.create(farm=self.farm,date='2026-10-05',buyer='Test',currency='NIO',lines=[],total='100')
+        early=AnimalSale.objects.create(farm=self.farm,date='2026-10-01',buyer='Test',currency='NIO',lines=[],total='200')
+        AnimalSale.objects.filter(pk__in=[early.pk,late.pk]).update(number=None)
+        previous=early.updated_at
+        migration=importlib.import_module('apps.livestock.migrations.0008_animalsale_number_and_more')
+        migration.number_existing_sales(apps,SimpleNamespace(connection=connection))
+        early.refresh_from_db();late.refresh_from_db()
+        self.assertEqual(early.reference,'V-000001');self.assertEqual(late.reference,'V-000002')
+        self.assertEqual(early.total,Decimal('200'));self.assertEqual(late.total,Decimal('100'))
+        self.assertGreater(early.updated_at,previous)
+
     def test_partial_sales_split_common_costs_once_and_close_only_at_end(self):
         self.login('boss')
         second = Animal.objects.create(farm=self.farm,tag='SECOND',sex='M',category='calf')

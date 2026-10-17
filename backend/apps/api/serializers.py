@@ -70,7 +70,7 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
     sale_receipts = serializers.SerializerMethodField()
 
     def get_sale_receipts(self, obj):
-        return [{'sale': str(s.id), 'date': s.date.isoformat(), 'animals': [r['animal'] for r in s.lines if r.get('agreement') == str(obj.id)]}
+        return [{'sale': str(s.id), 'reference': s.reference, 'date': s.date.isoformat(), 'animals': [r['animal'] for r in s.lines if r.get('agreement') == str(obj.id)]}
                 for s in AnimalSale.objects.filter(farm_id=obj.farm_id).order_by('date', 'id')
                 if any(r.get('agreement') == str(obj.id) for r in s.lines)]
 
@@ -330,6 +330,7 @@ class FarmMembershipSerializer(serializers.ModelSerializer):
 
 
 class AnimalSaleSerializer(FarmScopedSerializer):
+    reference = serializers.CharField(read_only=True)
     def to_representation(self, instance):
         from apps.livestock.sales import effective_sale_lines
         result = super().to_representation(instance)
@@ -338,8 +339,8 @@ class AnimalSaleSerializer(FarmScopedSerializer):
 
     class Meta:
         model = AnimalSale
-        fields = ['id', 'farm', 'date', 'buyer', 'buyer_phone', 'currency', 'notes', 'lines', 'total', 'updated_at']
-        read_only_fields = ['total', 'updated_at']
+        fields = ['id', 'farm', 'number', 'reference', 'date', 'buyer', 'buyer_phone', 'currency', 'notes', 'lines', 'total', 'updated_at']
+        read_only_fields = ['number', 'reference', 'total', 'updated_at']
 
     def validate(self, attrs):
         from apps.livestock.sales import normalize_sale

@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v6', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v7', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v6')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v7')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -283,7 +283,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v6', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v7', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -601,4 +601,11 @@ test('operator daily milk persists offline and server id merge keeps a newer pen
   await sync.enqueue('daily_milk',{id:'local',date:'2026-10-01',liters:'100.00',notes:''});
   api.pushBatch=async(_farm,data)=>{assert.equal(data.daily_milk[0].farm,'farm-a');await sync.enqueue('daily_milk',{id:'local',date:'2026-10-01',liters:'125.00',notes:'Correction'});return {daily_milk:[{id:'local',status:'updated',merged_into:'canonical'}]};};
   await sync.syncNow();assert.equal(await db.outbox.count(),1);assert.equal((await db.daily_milk.get('local')).liters,'125.00');
+});
+
+test('sale reference shows the confirmed farm sequence and hides internal UUIDs until confirmed',()=>{
+  const {saleReference}=saleHelpers();
+  assert.equal(saleReference({number:1}),'V-000001');assert.equal(saleReference({number:1234567}),'V-1234567');
+  assert.equal(saleReference({id:'8b82896c-968f-4fbf-9529-889ebab3e20b'}),'Pendiente de numeración');
+  assert.equal(saleReference({number:null}),'Pendiente de numeración');
 });

@@ -24,7 +24,7 @@ const PULL_TABLES = [
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v6';
+const LAST_PULL_KEY = 'last_pull_server_at_v7';
 const CHUNK_SIZE = 20;
 const SAVE_SYNC_DELAY_MS = 1500;
 const savedListeners = new Set<() => void>();

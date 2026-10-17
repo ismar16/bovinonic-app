@@ -173,3 +173,14 @@ Inicio, reportes y CSV de totales usan el total declarado de la finca cuando exi
 Validación: 65 pruebas backend y 49 frontend correctas; Svelte/TypeScript sin errores ni advertencias. Se verificaron permisos, fechas, importes, cero, límites, aislamiento entre fincas, transacciones, reintentos, fusión entre dispositivos y correcciones pendientes durante un envío. Los cálculos incluyen pruebas de centavos exactos y prioridad del total diario sobre la suma individual.
 
 QA en navegador con SQLite en memoria: existían 15 L de detalle individual. Guardar 125.50 L como total de finca produjo un reporte de 125.50 L, conservando los 15 L como detalle sin sumarlos. Se corrigió a 130.25 L, se registró cero para el día anterior y ambos registros se confirmaron automáticamente. Reporte final: 130.25 L, no 145.25 L. Formulario revisado a 320 px sin desbordamiento y a 1280 px en escritorio. No se ingresaron datos de prueba en producción.
+
+
+## Número de venta legible — 16/10/2026
+
+Se sustituye la referencia técnica visible por números consecutivos por finca: V-000001, V-000002, etc. Se asignan en el servidor bajo el mismo bloqueo por finca usado por la sincronización, con restricción única finca/número. Los reintentos conservan el número; una venta pendiente no inventa un número antes de confirmarse. El UUID sigue siendo la identificación interna y la URL estable.
+
+La migración livestock.0008 numera ventas existentes por fecha, creación y UUID, manteniendo importes y registros relacionados. Actualiza updated_at para sincronizar la numeración; el cliente realiza una descarga completa de colecciones con el nuevo cursor, conservando pendientes. Lista, búsqueda, detalle, enlaces desde acuerdos, comprobante CSV y nombre de archivo usan el número legible.
+
+Se quitó únicamente la nota visible de la corrección del peso de NI0038 en la venta solicitada; se conserva LogEntry con los valores originales y corregidos. Se verificó el peso 401 kg y el total de venta C$72,036; no se cambiaron importes, animales, cobros ni la auditoría interna al quitar la nota.
+
+Pruebas: numeración asignada por servidor e independiente por finca, reintentos sin nuevo número, rechazo de numeración forjada, migración de ventas existentes conservando importes, actualización de marcadores y formato pendiente/confirmado. QA de navegador con datos ficticios: búsqueda V-000001, detalle con «Número de venta», ausencia del UUID en el resumen y comprobante legible. Vista móvil a 320 px sin desbordamiento.

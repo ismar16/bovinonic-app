@@ -7,7 +7,7 @@
 	import { syncNow, enqueue, reviewFinancialPending } from '$lib/sync';
 	import { moneyLabel, units, decimal } from '$lib/agreements';
 	import SaleExpenseForm from '$lib/components/SaleExpenseForm.svelte';
-	import { saleWithExpenses, paymentMethods } from '$lib/sales';
+	import { saleReference, saleWithExpenses, paymentMethods } from '$lib/sales';
 	import { farmDate } from '$lib/dates';
 	import { errorMessage, validDate } from '$lib/forms';
 	import { downloadCsv, toCsv } from '$lib/reports';
@@ -46,7 +46,7 @@
 	async function reviewExpense(expense: SaleExpense) { try { error = ''; if (await reviewFinancialPending('sale_expenses',expense.id)) return; editingExpense = expense; } catch(cause) { error = errorMessage(cause); } }
 	function exportCsv() {
 		if (!sale) return;
-		const rows: (string | number | null)[][] = [['Venta',sale.id],['Estado',pending ? 'Pendiente de confirmación' : 'Confirmada'],['Fecha',sale.date],['Comprador',sale.buyer],['Teléfono',sale.buyer_phone],['Moneda',sale.currency],['Observaciones',sale.notes],['Total',sale.total ?? ''],['Cobrado',paid],['Saldo',balance]];
+		const rows: (string | number | null)[][] = [['Numero de venta',saleReference(sale)],['Estado',pending ? 'Pendiente de confirmación' : 'Confirmada'],['Fecha',sale.date],['Comprador',sale.buyer],['Teléfono',sale.buyer_phone],['Moneda',sale.currency],['Observaciones',sale.notes],['Total',sale.total ?? ''],['Cobrado',paid],['Saldo',balance]];
 		for (const r of sale.lines) {
 			rows.push(['Animal',r.tag],['Peso kg',r.weight_kg],['Precio kg',r.price_per_kg],['Importe',r.value ?? ''],['Acuerdo',r.agreement_title ?? ''],['Propietario',r.owner_name ?? ''],['Responsable',r.partner_name ?? ''],['Gastos totales',r.expenses_total ?? ''],['Ingreso menos gastos',r.net_after_expenses ?? '']);
 			for (const e of [...r.allocated_expenses ?? [], ...r.expenses]) rows.push(['Gasto',`${e.concept} · ${e.paid_by === 'owner' ? 'Propietario' : 'Responsable'}`,e.amount]);
@@ -55,7 +55,7 @@
 		}
 		for (const e of expenses) rows.push(['Gasto posterior',`${e.date} · ${e.concept} · ${e.paid_by === 'owner' ? 'Propietario' : 'Responsable'} · ${pendingIds.includes(e.id) ? 'Pendiente' : 'Confirmado'} · ${e.id}`,e.amount]);
 		for (const p of payments) rows.push(['Abono',`${p.date} · ${paymentMethods[p.method]} · ${p.reference} · ${pendingIds.includes(p.id) ? 'Pendiente' : 'Confirmado'}`,p.amount]);
-		downloadCsv(`venta-${sale.id}.csv`,toCsv(['Concepto','Detalle','Importe'],rows));
+		downloadCsv(`venta-${sale.number ? saleReference(sale) : 'pendiente'}.csv`,toCsv(['Concepto','Detalle','Importe'],rows));
 	}
 	const labels: Record<string,string> = { expenses:'Gastos descontados',owner_paid:'Gastos pagados por el propietario',partner_paid:'Gastos pagados por el responsable',initial_value:'Valor inicial del propietario',gain_value:'Valor de ganancia de peso',net_gain:'Ganancia neta a repartir',owner_part:'Parte del propietario',partner_part:'Parte del responsable',owner_total:'Total del propietario',partner_total:'Total del responsable',partner_reimbursement:'Reembolso al responsable' };
 </script>
@@ -64,7 +64,7 @@
 {#if $currentFarm?.role !== 'admin'}<Notice tone="warning" message="Las ventas y cobros requieren el rol de administrador." />{:else if loading}<p class="empty-state">Cargando venta…</p>{:else if !sale}<p class="empty-state">Venta no disponible. Sincronizá y volvé a intentar.</p>{:else}
 <div class="flex flex-wrap items-center gap-3"><span class="status-pill {pending ? 'pending' : ''}">{pending ? 'Pendiente de confirmación' : 'Venta confirmada · Historial protegido'}</span><button type="button" class="quiet-button" onclick={exportCsv}>Descargar comprobante CSV</button></div>
 {#if pending}<Notice tone="warning" message="La venta está guardada en este dispositivo. La salida del hato y liquidación se confirman al sincronizar. Si el servidor encuentra un conflicto, la operación completa queda pendiente y conserva los datos originales." /><button type="button" class="quiet-button" onclick={() => syncNow()}>Sincronizar ahora</button><a class="quiet-button" href="/sales/new?pending={sale.id}">Revisar y corregir pendiente</a>{/if}
-<section class="panel space-y-5 p-5 sm:p-6"><h2 class="section-title">Comprador y resumen</h2><dl class="grid gap-4 sm:grid-cols-2"><div><dt class="field-help">Comprador</dt><dd>{sale.buyer}</dd></div><div><dt class="field-help">Fecha</dt><dd>{sale.date}</dd></div><div><dt class="field-help">Teléfono</dt><dd>{sale.buyer_phone || 'Sin registrar'}</dd></div><div><dt class="field-help">Referencia</dt><dd class="break-all text-xs">{sale.id}</dd></div></dl>{#if sale.notes}<p class="whitespace-pre-wrap break-words text-sm">{sale.notes}</p>{/if}<div class="grid gap-3 sm:grid-cols-3">{#each [['Total',sale.total ?? '0'],['Cobrado',paid],['Por cobrar',balance]] as [label,value]}<div class="form-section"><p class="field-help">{label}</p><p class="text-xl font-semibold">{moneyLabel(value,sale.currency)}</p></div>{/each}</div></section>
+<section class="panel space-y-5 p-5 sm:p-6"><h2 class="section-title">Comprador y resumen</h2><dl class="grid gap-4 sm:grid-cols-2"><div><dt class="field-help">Comprador</dt><dd>{sale.buyer}</dd></div><div><dt class="field-help">Fecha</dt><dd>{sale.date}</dd></div><div><dt class="field-help">Teléfono</dt><dd>{sale.buyer_phone || 'Sin registrar'}</dd></div><div><dt class="field-help">Número de venta</dt><dd class="mt-1 font-semibold tracking-wide text-[#24533f]">{pending ? 'Pendiente de confirmación' : saleReference(sale)}</dd></div></dl>{#if sale.notes}<p class="whitespace-pre-wrap break-words text-sm">{sale.notes}</p>{/if}<div class="grid gap-3 sm:grid-cols-3">{#each [['Total',sale.total ?? '0'],['Cobrado',paid],['Por cobrar',balance]] as [label,value]}<div class="form-section"><p class="field-help">{label}</p><p class="text-xl font-semibold">{moneyLabel(value,sale.currency)}</p></div>{/each}</div></section>
 {#each sale.lines as line}<section class="panel space-y-4 p-5 sm:p-6"><h2 class="section-title"><a href="/animals/{line.animal}">{line.tag} · {line.name || 'Sin nombre'}</a></h2><p>{line.weight_kg} kg × {moneyLabel(line.price_per_kg,sale.currency)} = <strong>{moneyLabel(line.value,sale.currency)}</strong></p>
 {#if !line.agreement}<p class="notice">Gastos registrados: {moneyLabel(line.expenses_total,sale.currency)} · Ingreso menos gastos: {moneyLabel(line.net_after_expenses,sale.currency)}</p>{/if}{#if line.agreement}<a class="back-link mb-0" href="/agreements/{line.agreement}">{line.agreement_title || 'Ver acuerdo'} · {line.partner_name}</a>{/if}
 {#if line.settlement}<div class="grid gap-3 sm:grid-cols-2">{#each Object.entries(labels).filter(([key]) => key in line.settlement!) as [key,label]}<div class="form-section"><p class="field-help">{label}</p><p class="font-semibold">{moneyLabel(line.settlement[key as keyof typeof line.settlement] as string,sale.currency)}</p></div>{/each}</div><p class="field-help">Estos importes corresponden al reparto, no registran un pago entre las partes. Los abonos inferiores corresponden al cobro al comprador.</p>{/if}
