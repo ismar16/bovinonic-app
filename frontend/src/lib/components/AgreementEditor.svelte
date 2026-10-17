@@ -53,7 +53,7 @@
 	function useWeight(animal: string, final: boolean) {
 		const row = draft.animals.find((a) => a.animal === animal);
 		if (!row) return;
-		const record = weights.filter((w) => w.animal === animal && w.date <= (final ? draft.end_date || farmDate() : draft.start_date) && (!final || w.date >= draft.start_date)).sort((a,b) => b.date.localeCompare(a.date) || (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
+		const record = weights.filter((w) => !w.voided && w.animal === animal && w.date <= (final ? draft.end_date || farmDate() : draft.start_date) && (!final || w.date >= draft.start_date)).sort((a,b) => b.date.localeCompare(a.date) || (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
 		if (!record) { error = 'No hay un pesaje registrado dentro de ese periodo. Podés ingresar el peso manualmente.'; return; }
 		if (final) { row.final_weight = record.weight_kg; row.final_date = record.date; } else row.initial_weight = record.weight_kg;
 		error = '';

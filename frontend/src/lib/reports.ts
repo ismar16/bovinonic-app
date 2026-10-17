@@ -107,6 +107,7 @@ export async function gmdAlerts(farmId: string): Promise<GmdAlertRow[]> {
 	const weighings = await db.weighings.toArray();
 	const byAnimal = new Map<string, Weighing[]>();
 	for (const w of weighings) {
+		if (w.voided) continue;
 		const list = byAnimal.get(w.animal) ?? [];
 		list.push(w);
 		byAnimal.set(w.animal, list);
@@ -183,7 +184,7 @@ export async function exportWeighingsCsv(farmId: string): Promise<void> {
 	const animals = await db.animals.where('farm').equals(farmId).toArray();
 	const tagById = new Map(animals.map((a) => [a.id, a.tag]));
 	const weighings = (await db.weighings.toArray())
-		.filter((w) => tagById.has(w.animal))
+		.filter((w) => !w.voided && tagById.has(w.animal))
 		.sort((a, b) => (a.date < b.date ? -1 : 1));
 	const csv = toCsv(
 		['arete', 'fecha', 'peso_kg'],

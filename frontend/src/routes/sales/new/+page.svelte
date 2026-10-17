@@ -17,6 +17,7 @@
 	let query = $state(''), error = $state(''), loading = $state(true), saving = $state(false);
 	let unavailable = $state<string[]>([]);
 	let editingPending = $state(false);
+	let weightMessages = $state<Record<string,string>>({});
 	const choices = $derived(animals.filter((a) => a.status === 'active' && !unavailable.includes(a.id) && !draft.lines.some((l) => l.animal === a.id) && `${a.tag} ${a.name}`.toLowerCase().includes(query.toLowerCase())).slice(0, 20));
 	function agreementFor(id: string) { return agreements.find((a) => a.status === 'active' && a.animals.some((r) => r.animal === id)); }
 	function preview(line: AnimalSale['lines'][number]) { try { return saleLinePreview(line, agreementFor(line.animal)); } catch { return null; } }
@@ -43,6 +44,16 @@
 		const agreement = agreementFor(animal.id);
 		if (!draft.lines.length && agreement) draft.currency = agreement.currency;
 		draft.lines.push({ animal: animal.id, tag: animal.tag, name: animal.name, weight_kg: '', price_per_kg: '', agreement: agreement?.id ?? null, agreement_version: agreement?.updated_at ?? null, expenses: [] });
+	}
+	async function useLatestWeight(id: string) {
+		const agreement = agreementFor(id);
+		const weights = await db.weighings.where('animal').equals(id).filter((w) => !w.voided && w.source_type !== 'agreement_initial' && w.date <= draft.date && (!agreement || w.date >= agreement.start_date)).toArray();
+		const latest = weights.sort((a,b) => b.date.localeCompare(a.date) || (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
+		if (!latest) { error = 'No hay pesajes en ese periodo. Ingresá el peso final de la venta.'; return; }
+		const line = draft.lines.find((r) => r.animal === id);
+		if (line) line.weight_kg = latest.weight_kg;
+		weightMessages[id] = `Se usó el pesaje del ${latest.date}: ${latest.weight_kg} kg. Verificá que sea el peso de salida.`;
+		error = '';
 	}
 	async function save(event: SubmitEvent) {
 		event.preventDefault(); if (saving || $currentFarm?.role !== 'admin') return; saving = true; error = '';
@@ -76,7 +87,7 @@
 		<div class="form-section space-y-4"><div class="flex items-center justify-between gap-3"><h3 class="font-semibold">{line.tag} · {line.name || 'Sin nombre'}</h3><button type="button" class="p-2 text-red-700" aria-label="Quitar {line.tag}" onclick={() => draft.lines = draft.lines.filter((r) => r.animal !== line.animal)}><Trash2 class="h-4 w-4" /></button></div>
 		{#if agreement}<p class="field-help">{agreement.title} · {agreement.partner_name} · {agreement.currency}{agreement.kind === 'weight_gain' ? ` · Peso inicial: ${agreement.animals.find((r) => r.animal === line.animal)?.initial_weight} kg` : ''}</p>{/if}
 		<div class="form-grid"><label class="field-label">Peso de venta (kg) *<input class="field" inputmode="decimal" bind:value={line.weight_kg} required /></label><label class="field-label">Precio por kg *<input class="field" inputmode="decimal" bind:value={line.price_per_kg} required /></label></div>
-		<p class="field-help">Usá el peso y precio pactados con el comprador. Los importes usan dos decimales.</p>
+		<button type="button" class="quiet-button" onclick={() => useLatestWeight(line.animal)}>Usar último pesaje registrado</button>{#if weightMessages[line.animal]}<p class="field-help">{weightMessages[line.animal]}</p>{/if}<p class="field-help">Revisá que corresponda al pesaje final. Al confirmar la venta, este peso aparecerá automáticamente en la ficha del animal.</p>
 		{#if result}<p class="text-lg font-semibold">Venta: {moneyLabel(result.value,draft.currency)}</p>{/if}
 		<h4 class="text-sm font-semibold">Gastos adicionales pagados de este animal</h4><p class="field-help">Incluí solamente gastos nuevos, que todavía no estén en el acuerdo. Los gastos comunes originales se reparten por igual entre todos sus animales.</p>
 		{#each line.expenses as expense, index}<div class="rounded-xl border p-3 space-y-3"><label class="field-label">Concepto<input class="field" bind:value={expense.concept} maxlength="200" required /></label><div class="form-grid"><label class="field-label">Importe<input class="field" inputmode="decimal" bind:value={expense.amount} required /></label><label class="field-label">Quién pagó<select class="field" bind:value={expense.paid_by}><option value="owner">Propietario</option>{#if agreement}<option value="partner">Responsable de la otra finca</option>{/if}</select></label></div><button type="button" class="quiet-button" onclick={() => line.expenses.splice(index,1)}>Quitar gasto</button></div>{/each}

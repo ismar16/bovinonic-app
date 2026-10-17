@@ -25,6 +25,9 @@ class AnimalEvent(TimeStampedModel):
 
 class Weighing(AnimalEvent):
     weight_kg = models.DecimalField(_("peso (kg)"), max_digits=7, decimal_places=2)
+    source_type = models.CharField(max_length=24, default='manual', editable=False)
+    source_id = models.UUIDField(null=True, editable=False)
+    voided = models.BooleanField(default=False, editable=False)
 
     class Meta(AnimalEvent.Meta):
         verbose_name = _("pesaje")

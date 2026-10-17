@@ -53,6 +53,9 @@ export interface Animal {
 }
 
 export interface Weighing {
+	source_type?: 'manual' | 'agreement_initial' | 'agreement_final' | 'sale';
+	source_id?: string | null;
+	voided?: boolean;
 	id: string;
 	animal: string;
 	date: string;

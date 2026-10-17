@@ -247,10 +247,18 @@ class AnimalEventSerializer(FarmScopedSerializer):
 
 class WeighingSerializer(AnimalEventSerializer):
     weight_kg = serializers.DecimalField(max_digits=7, decimal_places=2, min_value=Decimal("0.01"))
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        existing = Weighing.objects.filter(pk=self.context.get('record_id')).first() if self.context.get('record_id') else None
+        if existing and existing.source_type != 'manual':
+            raise serializers.ValidationError('Este peso está vinculado a un acuerdo o venta. Se corrige desde su registro de origen.')
+        return attrs
+
     class Meta:
         model = Weighing
-        fields = ["id", "animal", "date", "weight_kg", "updated_at", "historical_warning"]
-        read_only_fields = ["updated_at", "historical_warning"]
+        fields = ["id", "animal", "date", "weight_kg", "updated_at", "historical_warning", 'source_type','source_id','voided']
+        read_only_fields = ["updated_at", "historical_warning", 'source_type','source_id','voided']
 
 
 class MilkingSerializer(AnimalEventSerializer):

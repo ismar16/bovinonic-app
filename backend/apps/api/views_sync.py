@@ -393,6 +393,9 @@ class SyncBatchView(APIView):
                         )
 
                     results[name] = entries
+                if any(name in authorized for name in ('agreements','sales','weighings')):
+                    from apps.production.linked_weights import reconcile_weights
+                    reconcile_weights(farm_id)
         except ValueError as exc:
             return Response(
                 {"detail": str(exc), "errors": errors},

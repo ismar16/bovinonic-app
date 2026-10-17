@@ -184,3 +184,13 @@ La migración livestock.0008 numera ventas existentes por fecha, creación y UUI
 Se quitó únicamente la nota visible de la corrección del peso de NI0038 en la venta solicitada; se conserva LogEntry con los valores originales y corregidos. Se verificó el peso 401 kg y el total de venta C$72,036; no se cambiaron importes, animales, cobros ni la auditoría interna al quitar la nota.
 
 Pruebas: numeración asignada por servidor e independiente por finca, reintentos sin nuevo número, rechazo de numeración forjada, migración de ventas existentes conservando importes, actualización de marcadores y formato pendiente/confirmado. QA de navegador con datos ficticios: búsqueda V-000001, detalle con «Número de venta», ausencia del UUID en el resumen y comprobante legible. Vista móvil a 320 px sin desbordamiento.
+
+## Pesajes conectados y pestañas de la ficha — 16/10/2026
+
+Los acuerdos generan pesajes iniciales y finales; las ventas generan el pesaje de salida con su fecha. La migración production.0003 conecta también los registros existentes sin alterar importes, cobros ni liquidaciones. Los identificadores son estables: reintentos y correcciones actualizan el mismo pesaje. La venta sustituye el final del acuerdo, los pesajes manuales coincidentes se conservan sin duplicar observaciones y los automáticos obsoletos se anulan mediante sincronización. Los pesos vinculados se corrigen desde su origen. Historial, último peso, curva y reportes excluyen observaciones anuladas.
+
+La ficha muestra el origen de cada peso y enlaces para el administrador. El formulario de venta permite usar el último pesaje válido del período, muestra su fecha y pide comprobar que corresponda a la salida; no utiliza automáticamente el peso inicial del acuerdo como peso final.
+
+General, Producción, Repro y Sanidad tienen colores distintos, iconos y selección destacada. Verificación visual en 320 px sin desbordamiento y en escritorio. QA aislada con SQLite en memoria: acuerdo inicial 345 kg y venta 401 kg aparecen en la ficha y su curva; último peso 401 kg. Botón de venta recuperó un pesaje manual de 280 kg con su fecha, sin confirmar otra venta.
+
+Validación: 73 pruebas backend y 51 frontend correctas (124 en total), migraciones sin cambios pendientes; Svelte/TypeScript sin errores ni advertencias. Incluye idempotencia, correcciones incrementales, prioridad sobre el final del acuerdo, conservación de pesajes manuales, protección de origen, permisos de lectura y reportes sin pesos anulados. Los datos de QA no se ingresaron en producción.

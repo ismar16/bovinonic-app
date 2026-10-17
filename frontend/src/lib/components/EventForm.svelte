@@ -53,7 +53,7 @@
 
 	async function selectAnimal(selected: Animal) {
 		animal = selected; error = ''; saved = false; quantity = '';
-		weighings = kind === 'weighing' ? await db.weighings.where('animal').equals(selected.id).toArray() : [];
+		weighings = kind === 'weighing' ? await db.weighings.where('animal').equals(selected.id).filter((w) => !w.voided).toArray() : [];
 	}
 	onMount(() => {
 		const id = page.url.searchParams.get('animal');

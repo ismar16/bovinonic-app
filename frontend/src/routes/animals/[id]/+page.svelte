@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { liveQuery } from 'dexie';
 
-	import { Pencil, ArrowLeft, ArrowRightLeft } from 'lucide-svelte';
+	import { Pencil, ArrowLeft, ArrowRightLeft, Info, Scale, HeartPulse, Syringe } from 'lucide-svelte';
 	import { currentFarm } from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -52,7 +52,7 @@
 		const asMother = await db.animals.where('farm').equals(found.farm).filter((a) => a.mother === found.id).toArray();
 		const asFather = await db.animals.where('farm').equals(found.farm).filter((a) => a.father === found.id).toArray();
 		offspring = [...asMother, ...asFather];
-		weighings = (await db.weighings.where('animal').equals(found.id).sortBy('date')).reverse().slice(0, 10);
+		weighings = (await db.weighings.where('animal').equals(found.id).filter((w) => !w.voided).sortBy('date')).reverse().slice(0, 10);
 		const rawMilkings = (await db.milkings.where('animal').equals(found.id).sortBy('date')).reverse();
 		const seenShifts = new Set<string>();
 		milkings = rawMilkings
@@ -163,12 +163,12 @@
             {#each [{label:'Lote',value:lotName}, {label:'Potrero',value:paddockName}, {label:'Propietario',value:ownerName}, {label:'Último peso',value:weighings[0] ? `${weighings[0].weight_kg} kg` : 'Sin registro'}, {label:'Nacimiento',value:animal.birth_date ?? 'Sin registrar'}] as item}<div class="panel p-4"><p class="eyebrow">{item.label}</p><p class="mt-2 text-sm font-semibold">{item.value}</p></div>{/each}
         </div>
         <section class="panel space-y-3 p-5"><h2 class="section-title">Ventas y acuerdos</h2>{#if $currentFarm?.role === 'admin'}<a class="quiet-button" href="/sales">Ver ventas y cobros</a>{#if animal.status === 'active'}<a class="action-button" href="/sales/new?animal={animal.id}">Registrar venta de este animal</a>{/if}{#each agreements as agreement}<a class="block rounded-xl border p-3 text-sm" href="/agreements/{agreement.id}"><strong>{agreement.title}</strong><span class="mt-1 block text-xs text-[#7c8e70]">{agreement.external_farm} · {agreement.partner_name} · {agreement.status === 'active' ? 'En curso' : 'Liquidado'}</span></a>{:else}<p class="field-help">Sin acuerdos registrados para este animal.</p>{/each}<a class="back-link mb-0" href="/agreements/new?animal={animal.id}">Registrar un acuerdo para este animal</a>{:else}<p class="field-help">Los acuerdos y sus liquidaciones están disponibles para administradores.</p>{/if}</section>
-        <Tabs.Root value="general">
-			<Tabs.List class="grid h-auto min-h-11 w-full grid-cols-4">
-				<Tabs.Trigger value="general">General</Tabs.Trigger>
-				<Tabs.Trigger value="production">Producción</Tabs.Trigger>
-				<Tabs.Trigger value="reproduction">Repro</Tabs.Trigger>
-				<Tabs.Trigger value="health">Sanidad</Tabs.Trigger>
+        <div class="animal-tabs"><Tabs.Root value="general">
+			<Tabs.List class="grid h-auto w-full grid-cols-4 gap-2 bg-transparent p-0">
+				<Tabs.Trigger value="general" class="animal-tab-general"><Info class="h-4 w-4" />General</Tabs.Trigger>
+				<Tabs.Trigger value="production" class="animal-tab-production"><Scale class="h-4 w-4" />Producción</Tabs.Trigger>
+				<Tabs.Trigger value="reproduction" class="animal-tab-reproduction"><HeartPulse class="h-4 w-4" />Repro</Tabs.Trigger>
+				<Tabs.Trigger value="health" class="animal-tab-health"><Syringe class="h-4 w-4" />Sanidad</Tabs.Trigger>
 			</Tabs.List>
 
 			<Tabs.Content value="general">
@@ -222,7 +222,7 @@
 						<ul class="flex flex-col gap-1">
 							{#each weighings as w (w.id)}
 								<li class="flex flex-wrap justify-between gap-2">
-									<span>{w.date}</span>
+									<span>{w.date}<span class="ml-2 text-xs text-[#61755e]">{w.source_type === 'sale' ? 'Peso de venta' : w.source_type === 'agreement_initial' ? 'Peso al iniciar acuerdo' : w.source_type === 'agreement_final' ? 'Peso final de acuerdo' : 'Pesaje registrado'}</span>{#if $currentFarm?.role === 'admin' && w.source_id}<a class="ml-2 text-xs font-semibold underline" href={w.source_type === 'sale' ? `/sales/${w.source_id}` : `/agreements/${w.source_id}`}>Ver origen</a>{/if}</span>
 									<span class="font-extrabold">{w.weight_kg} kg</span>
 								</li>
 							{:else}
@@ -291,7 +291,7 @@
 					</ul>
 				</section>
 			</Tabs.Content>
-		</Tabs.Root>
+		</Tabs.Root></div>
 	{/if}
 
 	<button

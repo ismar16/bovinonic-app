@@ -118,10 +118,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v7', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v8', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v7')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v8')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -259,6 +259,13 @@ test('weight alerts require distinct dates and use the latest updated reading pe
   report = load('reports', reportDeps([{ animal: 'cow', date: '2026-09-01', weight_kg: '100' }, { animal: 'cow', date: '2026-10-01', weight_kg: '110', updated_at: '2026-10-01T00:00:00Z' }, { animal: 'cow', date: '2026-10-01', weight_kg: '90', updated_at: '2026-10-01T02:00:00Z' }]));
   const rows = await report.gmdAlerts('farm-a'); assert.equal(rows[0].lastWeight, 90); assert.equal(rows[0].days, 30);
 });
+
+test('weight reports ignore superseded automatic observations after a sale or correction',async()=>{
+  const report=load('reports',reportDeps([{animal:'cow',date:'2026-09-01',weight_kg:'345',source_type:'agreement_initial'},
+    {animal:'cow',date:'2026-10-04',weight_kg:'401',source_type:'sale'},
+    {animal:'cow',date:'2026-10-05',weight_kg:'100',source_type:'agreement_final',voided:true}]));
+  assert.deepEqual(await report.gmdAlerts('farm-a'),[]);
+});
 test('calving, abortion and empty diagnoses cancel an old calving forecast', async () => {
   const { farmDate, addDateDays } = load('dates', {}); const today = farmDate();
   const service = { animal: 'cow', type: 'service', date: addDateDays(today, -270), estimated_calving_date: addDateDays(today, 13) };
@@ -283,7 +290,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v7', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v8', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
