@@ -91,6 +91,52 @@ test('an edit queued during upload survives acknowledgement and download', async
   assert.equal((await db.animals.get('cow')).name, 'Edited while uploading');
 });
 
+function healthLotFixture() {
+  const helper=load('lot-health',{'./forms':load('forms',{}),'./dates':load('dates',{})});
+  const animals=[{id:'cow1',farm:'farm-a',lot:'lot',tag:'A1',status:'active',birth_date:'2026-01-01'},{id:'cow2',farm:'farm-a',lot:'lot',tag:'A2',status:'active',birth_date:null},{id:'sold',farm:'farm-a',lot:'lot',tag:'A3',status:'sold'}];
+  const draft={farm:'farm-a',lot:'lot',date:'2026-10-17',type:'vaccine',product:' Producto DEMO ',withdrawal:'7',selected:['cow1','cow2'],doses:{cow1:' 2 ml ',cow2:'3 ml'},eventIds:{cow1:'event1',cow2:'event2'}};
+  return {helper,animals,draft};
+}
+
+test('lot health records share product and withdrawal but retain each animal dose and stable id', () => {
+  const {helper,animals,draft}=healthLotFixture();const before=structuredClone(draft);
+  const records=helper.buildLotHealthEvents(draft,animals,'2026-10-17');
+  assert.deepEqual(records.map(r=>[r.id,r.animal,r.product,r.dose,r.withdrawal_end_date]),[['event1','cow1','Producto DEMO','2 ml','2026-10-24'],['event2','cow2','Producto DEMO','3 ml','2026-10-24']]);
+  assert.deepEqual(draft,before);assert.deepEqual(helper.buildLotHealthEvents(draft,animals,'2026-10-17'),records);
+  assert.equal(helper.buildLotHealthEvents({...draft,selected:['cow2'],withdrawal:'0'},animals,'2026-10-17')[0].withdrawal_end_date,null);
+});
+
+test('lot health rejects incomplete doses stale membership inactive animals and invalid dates before writing', () => {
+  const {helper,animals,draft}=healthLotFixture();
+  for(const patch of [{doses:{cow1:'2 ml'}},{doses:{cow1:'2 ml',cow2:' '.repeat(2)}},{doses:{cow1:'2 ml',cow2:'x'.repeat(101)}},{product:''},{product:'x'.repeat(151)},{type:'other'},{date:'2026-10-18'},{date:'2026-02-30'},{date:'2025-01-01'},{withdrawal:'-1'},{withdrawal:'1.5'},{withdrawal:'3651'},{selected:[]},{selected:['cow1','cow1']},{selected:['sold']},{lot:'other'},{farm:'other'},{eventIds:{cow1:'same',cow2:'same'}}]) assert.throws(()=>helper.buildLotHealthEvents({...draft,...patch},animals,'2026-10-17'),JSON.stringify(patch));
+});
+
+test('lot health detects likely duplicates including unsent events but ignores its own saved records', () => {
+  const {helper}=healthLotFixture();
+  const events=[{id:'old',animal:'cow1',product:'  PRODUCTO DEMO ',date:'2026-10-17',type:'vaccine'},{id:'old2',animal:'cow1',product:'Producto DEMO',date:'2026-10-17',type:'vaccine'},{id:'other',animal:'cow2',product:'Otro',date:'2026-10-17',type:'vaccine'}];
+  assert.deepEqual(helper.existingLotHealthAnimals(events,['cow1','cow2'],'2026-10-17','vaccine','Producto DEMO'),['cow1']);
+  assert.deepEqual(helper.existingLotHealthAnimals(events,['cow1'],'2026-10-16','vaccine','Producto DEMO'),[]);
+  assert.deepEqual(helper.existingLotHealthAnimals(events,['cow1'],'2026-10-17','deworming','Producto DEMO'),[]);
+  assert.deepEqual(helper.existingLotHealthAnimals(events,['cow1'],'2026-10-17','vaccine','Producto DEMO',['old','old2']),[]);
+});
+
+test('a health lot larger than a sync chunk retries a lost response without duplicate events or losing doses', async () => {
+  const {sync,db,api}=setup();const server=new Map();
+  const writes=Array.from({length:25},(_,i)=>({collection:'health_events',payload:{id:`event${i}`,animal:`cow${i}`,type:'vaccine',product:'DEMO',dose:`${i+1} ml`,date:'2026-10-17',withdrawal_days:0}}));
+  await sync.enqueueMany(writes);assert.equal(await db.outbox.count(),25);
+  let calls=0;api.pushBatch=async(_farm,collections)=>{calls++;for(const r of collections.health_events)server.set(r.id,structuredClone(r));if(calls===2)throw new TypeError('Response lost');return {health_events:collections.health_events.map(r=>({id:r.id,status:'created'}))};};
+  api.pull=async()=>({health_events:[...server.values()]});
+  await sync.syncNow();assert.equal(await db.outbox.count(),5);assert.equal(server.size,25);
+  await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal(server.size,25);assert.equal((await db.health_events.get('event24')).dose,'25 ml');
+});
+
+test('technicians can save an entire health lot while operator permission failure writes nothing', async () => {
+  const {sync,db,stores}=setup();const {helper,animals,draft}=healthLotFixture();
+  const records=helper.buildLotHealthEvents(draft,animals,'2026-10-17').map(payload=>({collection:'health_events',payload}));
+  stores.currentFarm.value.role='operator';await assert.rejects(sync.enqueueMany(records),/rol/);assert.equal(await db.health_events.count(),0);assert.equal(await db.outbox.count(),0);
+  stores.currentFarm.value.role='technician';await sync.enqueueMany(records);assert.equal(await db.health_events.count(),2);assert.equal(await db.outbox.count(),2);
+});
+
 test('paddock settings and occupancy preserve unknown entry dates and warn at the limit', () => {
   const { paddockSettings, occupation } = load('paddocks', { './forms': load('forms', {}) });
   assert.deepEqual(paddockSettings('5,50','mz','3'), { area:'5.50',area_unit:'mz',max_occupation_days:3 });

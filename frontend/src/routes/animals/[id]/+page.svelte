@@ -279,6 +279,7 @@
 									<span>{e.date}</span>
 									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}: {e.product}</span>
 								</div>
+								{#if e.dose}<p class="mt-1 break-words text-sm">Dosis aplicada: {e.dose}</p>{/if}
 								{#if e.withdrawal_end_date || e.withdrawal_days}
 									<p class="ml-4 text-sm font-bold text-red-700">
 										Retiro hasta: {e.withdrawal_end_date ?? addDays(e.date, e.withdrawal_days ?? 0)}

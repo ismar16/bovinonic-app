@@ -103,6 +103,7 @@
 <svelte:head><title>{config.title} · Bovinonic</title></svelte:head>
 <div class="record-form mt-5 space-y-5">
 	<PageHeader title={config.title} eyebrow={config.eyebrow} description={config.description} backHref="/operations" backLabel="Operaciones" />
+	{#if kind === 'health'}<nav class="flex flex-wrap gap-2" aria-label="Forma de registro sanitario"><a class="action-button" href="/health" aria-current="page">Por animal</a><a class="quiet-button" href="/health/bulk">Por lote</a></nav>{/if}
 	{#if !canWrite}<Notice tone="warning" message="Tu rol permite consultar estos datos. Un técnico o administrador puede registrarlos." />
 	{:else if !animal}
 		<section class="space-y-4"><div class="flex items-center gap-3"><span class="status-pill">1 · Seleccionar animal</span></div><TagSearch onSelect={selectAnimal} category={kind === 'milking' ? 'cow_lactating' : null} sex={kind === 'reproduction' ? 'H' : null} filterStatus={includeInactive ? null : 'active'} />
