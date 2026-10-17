@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CattleMark from '$lib/components/CattleMark.svelte';
 	import { page } from '$app/state';
-	import { Bell, Beef, ChartNoAxesCombined, ClipboardList, Home, Settings, Handshake } from 'lucide-svelte';
+	import { Bell, Beef, BookOpen, ChartNoAxesCombined, ClipboardList, Home, Settings, Handshake } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import { liveQuery } from 'dexie';
 
@@ -81,6 +81,12 @@
 		class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/reports') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}">
 		<ChartNoAxesCombined class="h-6 w-6" /> Reportes
 	</a>
+	{#if $currentFarm?.role === 'admin'}
+		<a href="/catalogs" aria-current={path.startsWith('/catalogs') ? 'page' : undefined}
+			class="hidden min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:flex {path.startsWith('/catalogs') ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}">
+			<BookOpen class="h-6 w-6" /> Catálogos
+		</a>
+	{/if}
 	<div class="mt-auto hidden rounded-xl border border-white/10 bg-white/5 p-4 lg:block">
 		<p class="text-[10px] font-semibold uppercase tracking-[.2em] text-[#c6b78b]">Tu finca, conectada</p>
 		<p class="mt-2 text-xs leading-5 text-white/50">Cada animal tiene una historia. Mantenela al día.</p>
