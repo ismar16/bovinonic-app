@@ -8,7 +8,7 @@ from rest_framework.validators import UniqueValidator
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement, PasturePayment
 from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import ReproductiveEvent
@@ -28,7 +28,7 @@ class FarmScopedSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         farm_id = self.context.get("farm_id")
         if farm_id is not None:
-            for name in ("animal", "mother", "father", "paddock", "destination", "owner", "brand", "title_owner", "lot"):
+            for name in ("animal", "agreement", "mother", "father", "paddock", "destination", "owner", "brand", "title_owner", "lot"):
                 field = self.fields.get(name)
                 if field is not None and field.queryset is not None:
                     field.queryset = field.queryset.filter(farm_id=farm_id)
@@ -114,6 +114,11 @@ class PaddockMovementSerializer(FarmScopedSerializer):
 class AnimalAgreementSerializer(FarmScopedSerializer):
     owner_share = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0, max_value=100, required=False, default=50)
     sale_receipts = serializers.SerializerMethodField()
+    pasture_costs = serializers.SerializerMethodField()
+
+    def get_pasture_costs(self, obj):
+        from apps.livestock.pasture import pasture_expenses
+        return pasture_expenses(obj)
 
     def get_sale_receipts(self, obj):
         return [{'sale': str(s.id), 'reference': s.reference, 'date': s.date.isoformat(), 'animals': [r['animal'] for r in s.lines if r.get('agreement') == str(obj.id)]}
@@ -124,7 +129,7 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
         model = AnimalAgreement
         fields = ['id', 'farm', 'title', 'owner_name', 'partner_name', 'external_farm', 'kind',
                   'currency', 'owner_share', 'start_date', 'end_date', 'status', 'notes',
-                  'animals', 'expenses', 'settlement', 'updated_at', 'sale_receipts']
+                  'animals', 'expenses', 'settlement', 'updated_at', 'sale_receipts', 'pasture_costs']
         read_only_fields = ['settlement', 'updated_at']
 
     def validate(self, attrs):
@@ -141,6 +146,14 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
             record_id = str(UUID(str(self.context['record_id']))) if self.context.get('record_id') else None
             farm_id = self.context.get('farm_id') or attrs['farm'].pk
             existing = AnimalAgreement.objects.filter(pk=record_id, farm_id=farm_id).first() if record_id else None
+            if existing and PasturePayment.objects.filter(agreement=existing).exists():
+                if any(attrs.get(field) != getattr(existing,field) for field in ('kind','currency')):
+                    raise ValueError('Este acuerdo tiene mensualidades pagadas: su modalidad y moneda quedan protegidas.')
+                for payment in existing.pasture_payments.all():
+                    from calendar import monthrange
+                    period_end = date(payment.period.year,payment.period.month,monthrange(payment.period.year,payment.period.month)[1])
+                    if attrs['start_date'] > period_end or (attrs.get('end_date') and attrs['end_date'] < payment.period):
+                        raise ValueError('Las fechas del acuerdo deben incluir los meses ya pagados.')
             if existing and self.get_sale_receipts(existing):
                 for field, value in attrs.items():
                     if getattr(existing, field) != value:
@@ -221,7 +234,8 @@ class AnimalAgreementSerializer(FarmScopedSerializer):
                                'amount': format(amount(expense.get('amount'), minimum=Decimal('.01')), '.2f'),
                                'paid_by': expense['paid_by'], 'animal': animal_id})
             attrs['animals'], attrs['expenses'] = normalized, ledger
-            attrs['settlement'] = calculate_settlement(kind, normalized, ledger, attrs['owner_share']) if settled else None
+            rent = self.get_pasture_costs(existing) if existing and kind == 'pasture' else []
+            attrs['settlement'] = calculate_settlement(kind, normalized, ledger + rent, attrs['owner_share']) if settled else None
             if settled and kind != 'pasture' and Decimal(attrs['settlement']['net_gain']) < 0 and not ((existing and existing.status == 'settled') or self.initial_data.get('accept_loss') is True):
                 raise ValueError('La liquidación tiene saldo negativo. Confirmá expresamente su reparto antes de cerrar.')
             if existing and existing.status == 'settled':
@@ -384,6 +398,26 @@ class FarmMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = FarmMembership
         fields = ["id", "farm", "farm_name", "role"]
+
+
+class PasturePaymentSerializer(FarmScopedSerializer):
+    animal_ids = serializers.ListField(child=serializers.UUIDField(), write_only=True)
+    price_per_animal = serializers.DecimalField(max_digits=12,decimal_places=2,min_value=Decimal('.01'),max_value=Decimal('9999999.99'))
+
+    class Meta:
+        model = PasturePayment
+        fields = ['id','farm','agreement','period','date','price_per_animal','animal_ids','animals','total','currency','recipient','notes','updated_at']
+        read_only_fields = ['animals','total','currency','recipient','updated_at']
+
+    def validate(self, attrs):
+        from apps.livestock.pasture import normalize_pasture_payment
+        try:
+            record_id = UUID(str(self.context['record_id']))
+            existing = PasturePayment.objects.filter(pk=record_id).first()
+            attrs.setdefault('notes','')
+            return normalize_pasture_payment(attrs,self.context['farm_id'],existing)
+        except (ValueError,TypeError,KeyError) as exc:
+            raise serializers.ValidationError({'pasture_payment':str(exc) or 'Revisá la mensualidad.'})
 
 
 class AnimalSaleSerializer(FarmScopedSerializer):

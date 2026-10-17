@@ -7,6 +7,7 @@ import { db, type OutboxRecord } from './db';
 import { availableFarms, currentFarm, lastSyncResult, online, pendingCount, sessionChanging, sessionNotice, syncError, syncing, syncWarnings } from './stores';
 
 const PULL_TABLES = [
+	'pasture_payments',
 	'paddock_movements',
 	'owners',
 	'brands',
@@ -25,7 +26,7 @@ const PULL_TABLES = [
 ] as const;
 
 // Ignore old cursors derived from the device clock; refresh once after upgrading.
-const LAST_PULL_KEY = 'last_pull_server_at_v9';
+const LAST_PULL_KEY = 'last_pull_server_at_v10';
 const CHUNK_SIZE = 20;
 const SAVE_SYNC_DELAY_MS = 1500;
 const savedListeners = new Set<() => void>();
@@ -36,14 +37,14 @@ export async function refreshPendingCount(): Promise<void> {
 }
 
 /** Resolve a lost response before correcting a pending immutable financial record. */
-export async function reviewFinancialPending(collection: 'sales' | 'sale_payments' | 'sale_expenses' | 'paddock_movements', id: string, discardUnconfirmed = false): Promise<boolean> {
+export async function reviewFinancialPending(collection: 'sales' | 'sale_payments' | 'sale_expenses' | 'paddock_movements' | 'pasture_payments', id: string, discardUnconfirmed = false): Promise<boolean> {
 	const farm = get(currentFarm);
 	if (!farm || (farm.role !== 'admin' && !(collection === 'paddock_movements' && farm.role === 'technician'))) throw new Error('Tu rol no permite revisar este registro.');
 	if (get(syncing) || get(sessionChanging)) throw new Error('Esperá a que termine la sincronización y volvé a revisar.');
 	sessionChanging.set(true);
 	try {
 		const response = await financialReceipt(farm.id, collection, id);
-		if (!response.record && !(discardUnconfirmed && collection === 'paddock_movements')) return false;
+		if (!response.record && !(discardUnconfirmed && ['paddock_movements','pasture_payments'].includes(collection))) return false;
 		await db.transaction('rw', [db.outbox, db[collection]], async () => {
 			const pending = (await db.outbox.toArray()).filter((r) => r.collection === collection && r.record_id === id);
 			if (response.record) await db[collection].put(response.record as never);
@@ -71,17 +72,17 @@ export async function enqueueMany(records: PendingWrite[]): Promise<void> {
     if (get(sessionChanging)) throw new Error('Esperá a que termine el cambio de sesión.');
     const rank: Record<string, number> = { operator: 1, technician: 2, admin: 3 };
     const normalized = records.map(({ collection, payload }) => {
-        const minimum = ['owners','brands','paddocks','agreements','sales','sale_payments','sale_expenses'].includes(collection) ? 3
+        const minimum = ['owners','brands','paddocks','agreements','sales','sale_payments','sale_expenses','pasture_payments'].includes(collection) ? 3
             : ['animals','lots','paddock_movements','reproductive_events','health_events'].includes(collection) ? 2 : 1;
         if ((rank[farm.role] ?? 0) < minimum) throw new Error('Tu rol no permite guardar este tipo de registro.');
-        const catalog = ['animals','lots','owners','brands','paddocks','paddock_movements','agreements','sales','sale_payments','sale_expenses','daily_milk'].includes(collection);
+        const catalog = ['animals','lots','owners','brands','paddocks','paddock_movements','agreements','sales','sale_payments','sale_expenses','pasture_payments','daily_milk'].includes(collection);
         return { collection, payload: catalog ? { ...payload, farm: farm.id } : payload };
     });
     const tables = [db.outbox, ...new Set(normalized.map((record) => db[record.collection]))];
     await db.transaction('rw', tables, async () => {
         if (get(sessionChanging) || get(currentFarm)?.id !== farm.id || (get(currentFarm)?.dataVersion ?? 0) !== (farm.dataVersion ?? 0)) throw new Error('La finca cambió. Revisá el formulario antes de guardar.');
         for (const { collection, payload } of normalized) {
-            if (collection === 'sales' || collection === 'sale_payments' || collection === 'sale_expenses' || collection === 'paddock_movements') {
+            if (collection === 'sales' || collection === 'sale_payments' || collection === 'sale_expenses' || collection === 'paddock_movements' || collection === 'pasture_payments') {
                 const previous = (await db.outbox.toArray()).filter((r) => r.collection === collection && r.record_id === payload.id);
                 if (previous.length && get(syncing)) throw new Error('Esperá a que termine el envío antes de corregir el registro financiero.');
                 await db.outbox.bulkDelete(previous.map((r) => r.id!));

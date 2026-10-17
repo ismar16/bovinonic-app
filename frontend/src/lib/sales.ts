@@ -17,11 +17,11 @@ export function saleWithExpenses(input: AnimalSale, expenses: SaleExpense[]): An
 		const merged = new Map((line.subsequent_expenses ?? []).map((e) => [e.id,e]));
 		for (const e of expenses) if (e.sale === sale.id && e.animal === line.animal) merged.set(e.id,e);
 		line.subsequent_expenses = [...merged.values()].sort((a,b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-		const costs = [...line.allocated_expenses ?? [],...line.expenses,...line.subsequent_expenses];
+		const costs = [...line.allocated_expenses ?? [],...line.expenses,...line.subsequent_expenses,...line.subsequent_pasture_costs ?? []];
 		const total = costs.reduce((sum,e) => sum + units(e.amount,1n),0n);
 		line.expenses_total = decimal(total);
 		line.net_after_expenses = decimal(units(line.value ?? '0') - total);
-		if (!line.agreement || !line.subsequent_expenses.length) continue;
+		if (!line.agreement || (!line.subsequent_expenses.length && !line.subsequent_pasture_costs?.length)) continue;
 		line.settlement = agreementSettlement({ kind:line.kind, owner_share:line.owner_share,
 			animals:[{animal:line.animal,initial_weight:line.initial_weight,final_weight:line.weight_kg,price_per_kg:line.price_per_kg}],
 			expenses:costs.map((e) => ({...e,animal:line.animal}))
@@ -47,7 +47,7 @@ export function allocatedExpenses(agreement: AnimalAgreement, animal: string) {
 	const index = agreement.animals.findIndex((r) => r.animal === animal);
 	if (index < 0) throw new Error('El animal no pertenece al acuerdo.');
 	const count = BigInt(agreement.animals.length);
-	return agreement.expenses.filter((e) => !e.animal || e.animal === animal).map((e) => {
+	return [...agreement.expenses,...agreement.pasture_costs ?? []].filter((e) => !e.animal || e.animal === animal).map((e) => {
 		const cents = units(e.amount, 1n);
 		const share = e.animal ? cents : cents / count + (BigInt(index) < cents % count ? 1n : 0n);
 		return { ...e, animal, amount: decimal(share) };
@@ -62,6 +62,7 @@ export function saleLinePreview(line: SaleLine, agreement?: AnimalAgreement) {
 	if (!original) throw new Error('El animal no está en este acuerdo.');
 	const allocated = allocatedExpenses(agreement, line.animal);
 	return { value, allocated_expenses: allocated, settlement: agreementSettlement({ ...agreement,
+		pasture_costs: [],
 		animals: [{ ...original, final_weight: line.weight_kg, price_per_kg: line.price_per_kg }],
 		expenses: [...allocated, ...line.expenses.map((e, i) => ({ ...e, id: `extra-${i}`, date: '', animal: line.animal }))]
 	}) };

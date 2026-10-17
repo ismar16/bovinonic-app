@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import Farm, FarmMembership
 from apps.health.models import HealthEvent
-from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement
+from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement, PasturePayment
 from apps.livestock.sales import apply_sale, refresh_sale_agreements
 from apps.production.models import Milking, Weighing, DailyMilkProduction
 from apps.reproduction.models import (
@@ -33,11 +33,13 @@ from .serializers import (
     OwnerSerializer,
     PaddockSerializer,
     PaddockMovementSerializer,
+    PasturePaymentSerializer,
     ReproductiveEventSerializer,
     WeighingSerializer,
 )
 
 PULL_COLLECTIONS = {
+    'pasture_payments': (PasturePayment, PasturePaymentSerializer),
     'paddock_movements': (PaddockMovement, PaddockMovementSerializer),
     "owners": (Owner, OwnerSerializer),
     "brands": (Brand, BrandSerializer),
@@ -79,6 +81,7 @@ WRITE_COLLECTIONS = {
     'sale_payments': (SalePayment, SalePaymentSerializer, FarmMembership.Role.ADMIN),
     'sale_expenses': (SaleExpense, SaleExpenseSerializer, FarmMembership.Role.ADMIN),
     'paddock_movements': (PaddockMovement, PaddockMovementSerializer, FarmMembership.Role.TECHNICIAN),
+    'pasture_payments': (PasturePayment, PasturePaymentSerializer, FarmMembership.Role.ADMIN),
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
@@ -120,7 +123,7 @@ class SyncPullView(APIView):
 
         payload = {}
         for name, (model, serializer_class) in PULL_COLLECTIONS.items():
-            if name in ('agreements', 'sales', 'sale_payments', 'sale_expenses') and request.farm_membership.role != FarmMembership.Role.ADMIN:
+            if name in ('agreements', 'sales', 'sale_payments', 'sale_expenses', 'pasture_payments') and request.farm_membership.role != FarmMembership.Role.ADMIN:
                 payload[name] = []
                 continue
             queryset = model.objects.filter(farm_id=farm_id)
@@ -236,7 +239,7 @@ class SyncBatchView(APIView):
                             entries.append(entry)
                         results[name] = entries
                         continue
-                    if model in (AnimalSale, SalePayment, SaleExpense):
+                    if model in (AnimalSale, SalePayment, SaleExpense, PasturePayment):
                         entries = []
                         for record in records:
                             record_id = record.get('id')
@@ -256,6 +259,9 @@ class SyncBatchView(APIView):
                                 elif model is SaleExpense:
                                     AnimalSale.objects.filter(pk=obj.sale_id).update(updated_at=timezone.now())
                                     refresh_sale_agreements(obj.sale)
+                                elif model is PasturePayment:
+                                    from apps.livestock.pasture import refresh_pasture_payment
+                                    refresh_pasture_payment(obj)
                                 entries.append({'id': str(record_id), 'status': 'created'})
                         results[name] = entries
                         continue

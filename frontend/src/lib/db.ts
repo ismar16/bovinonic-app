@@ -116,6 +116,7 @@ export interface OutboxRecord {
 		| 'paddock_movements'
 		| 'lots'
 		| 'agreements'
+		| 'pasture_payments'
 		| 'sales'
 		| 'sale_payments'
 		| 'sale_expenses'
@@ -165,6 +166,7 @@ export interface AgreementSettlement {
 	owner_part?: string; partner_part?: string; owner_total?: string; partner_total?: string;
 }
 export interface AnimalAgreement {
+	pasture_costs?: AgreementExpense[];
 	id: string; farm: string; title: string; owner_name: string; partner_name: string; external_farm: string;
 	kind: 'weight_gain' | 'sale' | 'offspring' | 'pasture'; currency: 'NIO' | 'USD'; owner_share: string;
 	start_date: string; end_date: string | null; status: 'active' | 'settled'; notes: string;
@@ -174,6 +176,7 @@ export interface AnimalAgreement {
 }
 
 export interface SaleLine {
+	subsequent_pasture_costs?: AgreementExpense[];
 	animal: string; tag: string; name?: string; weight_kg: string; price_per_kg: string;
 	agreement: string | null; agreement_version: string | null;
 	expenses: { concept: string; amount: string; paid_by: 'owner' | 'partner' }[];
@@ -192,12 +195,19 @@ export interface SaleExpense {
  id: string; farm: string; sale: string; animal: string; date: string; concept: string; amount: string;
  paid_by: 'owner' | 'partner'; created_at?: string; updated_at?: string; accept_loss?: boolean;
 }
+export interface PasturePayment {
+	id: string; farm: string; agreement: string; period: string; date: string; price_per_animal: string;
+	animal_ids?: string[]; animals?: { animal: string; tag: string; name: string }[];
+	total?: string; currency?: 'NIO' | 'USD'; recipient?: string; notes: string; updated_at?: string;
+}
+
 export interface SalePayment {
 	id: string; farm: string; sale: string; date: string; amount: string;
 	method: 'cash' | 'transfer' | 'other'; reference: string; updated_at?: string;
 }
 
 class GanaderiaDB extends Dexie {
+	pasture_payments!: EntityTable<PasturePayment, 'id'>;
 	paddock_movements!: EntityTable<PaddockMovement, 'id'>;
 	sale_expenses!: EntityTable<SaleExpense, 'id'>;
 	sales!: EntityTable<AnimalSale, 'id'>;
@@ -241,6 +251,7 @@ class GanaderiaDB extends Dexie {
 		this.version(5).stores({ sale_expenses: 'id, farm, sale, animal, date, updated_at' });
 		this.version(6).stores({ daily_milk: 'id, farm, date, [farm+date], updated_at' });
 		this.version(7).stores({ paddock_movements: 'id, farm, date, destination, lot, updated_at' });
+		this.version(8).stores({ pasture_payments: 'id, farm, agreement, period, date, updated_at' });
 	}
 }
 

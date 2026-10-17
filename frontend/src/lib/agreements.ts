@@ -28,7 +28,7 @@ export function moneyLabel(value: string | undefined, currency: 'NIO' | 'USD'): 
 
 export function agreementSettlement(agreement: AnimalAgreement): AgreementSettlement {
 	let ownerPaid = 0n, partnerPaid = 0n;
-	for (const e of agreement.expenses) {
+	for (const e of [...agreement.expenses,...agreement.pasture_costs ?? []]) {
 		const cost = units(e.amount, 1n);
 		if (e.paid_by === 'owner') ownerPaid += cost;
 		else if (e.paid_by === 'partner') partnerPaid += cost;

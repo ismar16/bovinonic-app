@@ -15,7 +15,8 @@ def allocated_expenses(agreement, animal_id):
     ids = [r['animal'] for r in agreement.animals]
     index = ids.index(animal_id)
     result = []
-    for expense in agreement.expenses:
+    from .pasture import pasture_expenses
+    for expense in agreement.expenses + pasture_expenses(agreement):
         if expense.get('animal') and expense['animal'] != animal_id:
             continue
         cents = int(Decimal(expense['amount']) * 100)
@@ -122,10 +123,16 @@ def effective_sale_lines(sale, extra=None):
                   'created_at': e['created_at'].isoformat() if e.get('created_at') else None}
                  for e in adjustments if str(e['animal_id']) == line['animal']]
         line['subsequent_expenses'] = added
-        costs = line.get('allocated_expenses', []) + line['expenses'] + added
+        rent = []
+        if line.get('kind') == 'pasture' and line.get('agreement'):
+            from .pasture import pasture_expenses
+            original_ids = {e.get('id') for e in line.get('allocated_expenses', [])}
+            rent = [e for e in pasture_expenses(AnimalAgreement.objects.get(pk=line['agreement'],farm_id=sale.farm_id)) if e['animal'] == line['animal'] and e['id'] not in original_ids]
+        line['subsequent_pasture_costs'] = rent
+        costs = line.get('allocated_expenses', []) + line['expenses'] + added + rent
         line['expenses_total'] = money(sum((Decimal(e['amount']) for e in costs), Decimal(0)))
         line['net_after_expenses'] = money(Decimal(line['value']) - Decimal(line['expenses_total']))
-        if not added:
+        if not added and not rent:
             continue
         line['original_settlement'] = deepcopy(line.get('settlement'))
         if line.get('agreement'):
@@ -158,6 +165,9 @@ def refresh_sale_agreements(sale):
                     total[key] = money(sum((Decimal(s.get(key, '0')) for s in settlements), Decimal(0)))
             if agreement.kind != 'pasture':
                 total['lines'] = [line for s in settlements for line in s['lines']]
+            else:
+                from .pasture import pasture_settlement
+                total = pasture_settlement(agreement)
             agreement.status = 'settled'
             agreement.end_date = max(record.date for record in AnimalSale.objects.filter(farm_id=sale.farm_id) if any(r.get('agreement') == agreement_id for r in record.lines))
             agreement.settlement = total

@@ -223,6 +223,22 @@ class AnimalAgreement(TimeStampedModel):
         return self.title
 
 
+class PasturePayment(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='pasture_payments')
+    agreement = models.ForeignKey(AnimalAgreement, on_delete=models.PROTECT, related_name='pasture_payments')
+    period = models.DateField()
+    date = models.DateField()
+    price_per_animal = models.DecimalField(max_digits=12, decimal_places=2)
+    animals = models.JSONField(default=list)
+    total = models.DecimalField(max_digits=18, decimal_places=2, editable=False)
+    currency = models.CharField(max_length=3, editable=False)
+    recipient = models.CharField(max_length=150, editable=False)
+    notes = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['farm', 'updated_at']), models.Index(fields=['agreement', 'period'])]
+
+
 class AnimalSale(TimeStampedModel):
     number = models.PositiveIntegerField(null=True, editable=False)
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='animal_sales')

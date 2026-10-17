@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'paddock_movements', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
+  const names = ['owners', 'brands', 'paddocks', 'paddock_movements', 'pasture_payments', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -89,6 +89,57 @@ test('an edit queued during upload survives acknowledgement and download', async
   assert.equal(await db.outbox.count(), 1);
   assert.equal((await db.outbox.toArray())[0].payload.name, 'Edited while uploading');
   assert.equal((await db.animals.get('cow')).name, 'Edited while uploading');
+});
+
+function pastureFixture() {
+  const forms=load('forms',{}),dates=load('dates',{}),agreements=load('agreements',{'./forms':forms,'./dates':dates});
+  const helper=load('pasture',{'./agreements':agreements,'./dates':dates,'./forms':forms});
+  const agreement={id:'agreement',farm:'farm-a',kind:'pasture',currency:'NIO',partner_name:'Responsable',start_date:'2026-09-01',end_date:null,owner_share:'50.00',expenses:[],animals:Array.from({length:15},(_,i)=>({animal:`a${i}`,tag:`A${i}`,name:''}))};
+  const draft={id:'rent',farm:'farm-a',agreement:'agreement',period:'2026-10-01',date:'2026-10-17',price_per_animal:'200,10',animal_ids:agreement.animals.map(a=>a.animal),notes:''};
+  return {helper,agreements,agreement,draft};
+}
+
+test('monthly rent multiplies exact cents by selected animals and preserves the agreement', () => {
+  const {helper,agreement,draft}=pastureFixture();const original=structuredClone(agreement);
+  const payment=helper.validatePasturePayment(draft,agreement,[],'2026-10-17');
+  assert.equal(payment.total,'3001.50');assert.equal(payment.currency,'NIO');assert.equal(payment.price_per_animal,'200.10');assert.deepEqual(agreement,original);
+  assert.equal(helper.paymentAnimals({...payment,animal_ids:undefined,animals:[{animal:'a0'}]}).length,1);
+  assert.equal(helper.rentTotal({...payment,total:undefined}),'3001.50');
+});
+
+test('monthly rent validates periods dates rates animal membership and overlapping pending receipts', () => {
+  const {helper,agreement,draft}=pastureFixture();
+  for(const patch of [{period:'2026-08-01'},{period:'2026-11-01'},{period:'2026-10-02'},{period:'2026-99-01'},{date:'2026-09-30'},{date:'2026-10-18'},{price_per_animal:'0'},{price_per_animal:'-1'},{price_per_animal:'1.001'},{animal_ids:[]},{animal_ids:['a0','a0']},{animal_ids:['other']},{farm:'other'},{notes:'x'.repeat(501)}])assert.throws(()=>helper.validatePasturePayment({...draft,...patch},agreement,[],'2026-10-17'),JSON.stringify(patch));
+  const first=helper.validatePasturePayment({...draft,id:'first',animal_ids:['a0']},agreement,[],'2026-10-17');
+  assert.throws(()=>helper.validatePasturePayment(draft,agreement,[first],'2026-10-17'),/mensualidad/);
+  assert.equal(helper.validatePasturePayment({...draft,animal_ids:['a1']},agreement,[first],'2026-10-17').total,'200.10');
+  assert.equal(helper.periodEnd('2028-02'),'2028-02-29');
+});
+
+test('rental costs enter the agreement and sale calculation exactly once including later rent', () => {
+  const {agreements,agreement}=pastureFixture();
+  agreement.pasture_costs=agreement.animals.map((a,i)=>({id:`rent${i}`,date:'2026-10-17',animal:a.animal,paid_by:'owner',amount:'200.10',concept:'Alquiler'}));
+  assert.equal(agreements.agreementSettlement(agreement).owner_paid,'3001.50');
+  const sales=load('sales',{'./agreements':agreements,'./forms':load('forms',{}),'./dates':load('dates',{})});
+  const line={animal:'a0',tag:'A0',weight_kg:'200',price_per_kg:'100',expenses:[],agreement:'agreement'};
+  const preview=sales.saleLinePreview(line,agreement);assert.equal(preview.settlement.expenses,'200.10');
+  const sale={id:'sale',lines:[{...line,kind:'pasture',owner_share:'50.00',value:'20000.00',allocated_expenses:preview.allocated_expenses,subsequent_pasture_costs:[{id:'later',animal:'a0',amount:'300',paid_by:'owner'}]}]};
+  const revised=sales.saleWithExpenses(sale,[]);assert.equal(revised.lines[0].expenses_total,'500.10');
+  assert.equal(sales.saleWithExpenses(revised,[]).lines[0].expenses_total,'500.10');
+});
+
+test('rent eligibility preserves the month of exit and excludes animals that left before it', () => {
+  const {helper,agreement}=pastureFixture();agreement.sale_receipts=[{date:'2026-09-30',animals:['a0']},{date:'2026-10-04',animals:['a1']}];
+  const rows=helper.eligibleRentAnimals(agreement,[],'2026-10');assert.equal(rows.length,14);assert.ok(rows.some(a=>a.animal==='a1'));assert.ok(!rows.some(a=>a.animal==='a0'));
+});
+
+test('rental payments require admin and remain recoverable after losing the confirmation', async () => {
+  const {sync,db,api,stores}=setup();const {helper,agreement,draft}=pastureFixture();const payment=helper.validatePasturePayment(draft,agreement,[],'2026-10-17');
+  stores.currentFarm.value.role='technician';await assert.rejects(sync.enqueue('pasture_payments',payment),/rol/);
+  stores.currentFarm.value.role='admin';await sync.enqueue('pasture_payments',payment);
+  api.pushBatch=async()=>{throw new TypeError('Lost response');};await sync.syncNow();assert.equal(await db.outbox.count(),1);
+  api.financialReceipt=async()=>({record:{...payment,updated_at:'confirmed'}});
+  assert.equal(await sync.reviewFinancialPending('pasture_payments',payment.id),true);assert.equal(await db.outbox.count(),0);assert.equal((await db.pasture_payments.get(payment.id)).total,'3001.50');
 });
 
 function healthLotFixture() {
@@ -215,10 +266,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v9', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v10', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v9')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v10')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -387,7 +438,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v9', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v10', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };

@@ -66,6 +66,7 @@
 		saving = true; error = '';
 		try {
 			const data = validateAgreement($state.snapshot(draft), settle);
+			if ((await db.outbox.toArray()).some((r) => r.collection === 'pasture_payments' && r.payload.agreement === draft.id)) throw new Error('Sincronizá las mensualidades pendientes antes de editar o liquidar el acuerdo.');
 			if (others.some((a) => a.id !== draft.id && a.status === 'active' && a.animals.some((r) => data.animals.some((row) => row.animal === r.animal)))) throw new Error('Hay un animal asignado a otro acuerdo en curso.');
 			await enqueue('agreements', { ...data });
 			saved = true;
