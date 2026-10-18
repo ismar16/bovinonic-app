@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ArrowRight, Check, Milk, Scale, HeartPulse, Syringe } from 'lucide-svelte';
 	import PageHeader from './PageHeader.svelte';
@@ -74,6 +75,7 @@
 		try {
 			if (animal.birth_date && date < animal.birth_date) throw new Error('El evento no puede ser anterior al nacimiento del animal.');
 			if (!validDate(date) || date > farmDate()) throw new Error('Elegí una fecha válida que no sea futura.');
+			if(kind === 'reproduction' && eventType === 'calving'){await goto(`/reproduction/calving?animal=${animal.id}&date=${date}`);return;}
 			const payload: Record<string, unknown> & { id: string } = { id: crypto.randomUUID(), animal: animal.id, date };
 			if (kind === 'milking') {
 				const liters = decimalValue(quantity, true);
@@ -103,6 +105,7 @@
 <svelte:head><title>{config.title} · Bovinonic</title></svelte:head>
 <div class="record-form mt-5 space-y-5">
 	<PageHeader title={config.title} eyebrow={config.eyebrow} description={config.description} backHref="/operations" backLabel="Operaciones" />
+	{#if kind === 'reproduction'}<nav class="flex flex-wrap gap-2"><a class="action-button" href="/reproduction/calving">Registrar parto y crías</a><a class="quiet-button" href="/reproduction/calvings">Historial de partos</a></nav>{/if}
 	{#if kind === 'health'}<nav class="flex flex-wrap gap-2" aria-label="Forma de registro sanitario"><a class="action-button" href="/health" aria-current="page">Por animal</a><a class="quiet-button" href="/health/bulk">Por lote</a></nav>{/if}
 	{#if !canWrite}<Notice tone="warning" message="Tu rol permite consultar estos datos. Un técnico o administrador puede registrarlos." />
 	{:else if !animal}
@@ -136,7 +139,7 @@
 			</fieldset>
 			<Notice tone="error" message={error} />
 			{#if saved}<Notice tone="success" message={$pendingCount ? 'Guardado en este dispositivo. Hay registros pendientes de sincronizar.' : 'Guardado. No hay registros pendientes de envío.'} />{/if}
-			<div class="form-actions"><button type="submit" class="action-button" disabled={saving || saved}>{#if saved}<Check class="h-4 w-4" />{/if}{saving ? 'Guardando…' : saved ? 'Registro guardado' : 'Guardar registro'}</button><button type="button" class="quiet-button" disabled={saving} onclick={nextAnimal}>{saved ? 'Registrar otro animal' : 'Cambiar animal'}<ArrowRight class="h-4 w-4" /></button>{#if saved}<a href="/animals/{animal.id}" class="back-link mb-0">Ver ficha</a>{/if}</div>
+			<div class="form-actions"><button type="submit" class="action-button" disabled={saving || saved}>{#if saved}<Check class="h-4 w-4" />{/if}{saving ? 'Guardando…' : saved ? 'Registro guardado' : kind === 'reproduction' && eventType === 'calving' ? 'Continuar al registro del parto' : 'Guardar registro'}</button><button type="button" class="quiet-button" disabled={saving} onclick={nextAnimal}>{saved ? 'Registrar otro animal' : 'Cambiar animal'}<ArrowRight class="h-4 w-4" /></button>{#if saved}<a href="/animals/{animal.id}" class="back-link mb-0">Ver ficha</a>{/if}</div>
 		</form>
 	{/if}
 </div>

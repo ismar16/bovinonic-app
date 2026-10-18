@@ -9,7 +9,7 @@
     import { currentFarm } from '$lib/stores';
     import { exportAnimalsCsv } from '$lib/reports';
 
-    const categories: Record<string, string> = { calf: 'Ternero/a', heifer: 'Novillo/a', cow_lactating: 'Vaca en ordeño', cow_dry: 'Vaca seca', bull: 'Toro reproductor' };
+    const categories: Record<string, string> = { calf: 'Ternero/a', heifer: 'Novillo/a', cow_lactating: 'Vaca en ordeño', cow_nursing: 'Vaca con cría', cow_dry: 'Vaca seca', bull: 'Toro reproductor' };
     const statuses: Record<string, string> = { active: 'Activo', sold: 'Vendido', dead: 'Muerto', culled: 'Descarte' };
     let query = $state('');
     let animals = $state<Animal[]>([]);

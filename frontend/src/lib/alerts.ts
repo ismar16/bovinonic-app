@@ -78,7 +78,7 @@ export async function computeReproAlerts(farmId: string): Promise<ReproAlerts> {
 	const eligible = animals.filter(
 		(a) =>
 			a.sex === 'H' &&
-			(a.category === 'cow_lactating' || a.category === 'cow_dry')
+			(a.category === 'cow_lactating' || a.category === 'cow_dry' || a.category === 'cow_nursing')
 	);
 	for (const animal of eligible) {
 		const list = (eventsByAnimal.get(animal.id) ?? []).sort((a, b) =>

@@ -78,7 +78,7 @@ export async function me(): Promise<User> {
 	return response.json();
 }
 
-export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'paddock_movements' | 'lots' | 'animals' | 'agreements' | 'sales' | 'sale_payments' | 'sale_expenses' | 'pasture_payments' | 'weighings'
+export type PullCollection = 'owners' | 'brands' | 'paddocks' | 'paddock_movements' | 'calvings' | 'lots' | 'animals' | 'agreements' | 'sales' | 'sale_payments' | 'sale_expenses' | 'pasture_payments' | 'weighings'
 	| 'milkings' | 'daily_milk' | 'reproductive_events' | 'health_events';
 
 export type PullResponse = Partial<Record<PullCollection, unknown[]>> & { sync_cursor?: string };
@@ -142,7 +142,7 @@ export async function syncState(farmId: string): Promise<{ data_version: number;
 	return response.json();
 }
 
-export async function financialReceipt(farmId: string, collection: 'sales' | 'sale_payments' | 'sale_expenses' | 'paddock_movements' | 'pasture_payments', id: string): Promise<{ record: Record<string, unknown> | null }> {
+export async function financialReceipt(farmId: string, collection: 'sales' | 'sale_payments' | 'sale_expenses' | 'paddock_movements' | 'calvings' | 'pasture_payments', id: string): Promise<{ record: Record<string, unknown> | null }> {
 	const params = new URLSearchParams({ farm: farmId, collection, id });
 	const response = await request(`/api/sales/receipt?${params}`);
 	return response.json();

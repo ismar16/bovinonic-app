@@ -35,6 +35,8 @@ export interface Paddock {
 }
 
 export interface Animal {
+	birth_record?: string | null;
+	last_calving?: string | null;
 	paddock_since?: string | null;
 	paddock_movement?: string | null;
 	id: string;
@@ -58,7 +60,7 @@ export interface Animal {
 }
 
 export interface Weighing {
-	source_type?: 'manual' | 'agreement_initial' | 'agreement_final' | 'sale';
+	source_type?: 'manual' | 'agreement_initial' | 'agreement_final' | 'sale' | 'birth';
 	source_id?: string | null;
 	voided?: boolean;
 	id: string;
@@ -82,6 +84,7 @@ export interface Milking {
 }
 
 export interface ReproductiveEvent {
+	calving_record?: string | null;
 	id: string;
 	animal: string;
 	date: string;
@@ -124,6 +127,7 @@ export interface OutboxRecord {
 		| 'milkings'
 		| 'daily_milk'
 		| 'reproductive_events'
+		| 'calvings'
 		| 'health_events';
 	record_id: string;
 	payload: Record<string, unknown>;
@@ -201,12 +205,28 @@ export interface PasturePayment {
 	total?: string; currency?: 'NIO' | 'USD'; recipient?: string; notes: string; updated_at?: string;
 }
 
+export interface CalvingCalf {
+	mode: 'new' | 'existing' | 'stillborn'; animal: string | null; sex?: 'H' | 'M' | 'unknown';
+	tag?: string; name?: string; weight_kg: string | null;
+}
+export interface CalvingLocation {
+	change_mother_lot: boolean; mother_lot: string | null; change_mother_paddock: boolean; mother_paddock: string | null;
+	calf_lot: string | null; calf_paddock: string | null; calf_owner: string | null;
+}
+export interface CalvingRecord {
+	id: string; farm: string; mother: string; date: string; delivery: 'normal' | 'assisted' | 'complicated';
+	maternal_status: 'keep' | 'cow_lactating' | 'cow_nursing' | 'cow_dry'; mother_version: string;
+	calves: CalvingCalf[]; location: CalvingLocation; notes: string; updated_at?: string;
+	result?: { calves: (CalvingCalf & {outcome:'alive'|'stillborn';provisional?:boolean})[]; event:string; movement:string|null; mother_category:string };
+}
+
 export interface SalePayment {
 	id: string; farm: string; sale: string; date: string; amount: string;
 	method: 'cash' | 'transfer' | 'other'; reference: string; updated_at?: string;
 }
 
 class GanaderiaDB extends Dexie {
+	calvings!: EntityTable<CalvingRecord, 'id'>;
 	pasture_payments!: EntityTable<PasturePayment, 'id'>;
 	paddock_movements!: EntityTable<PaddockMovement, 'id'>;
 	sale_expenses!: EntityTable<SaleExpense, 'id'>;
@@ -252,6 +272,7 @@ class GanaderiaDB extends Dexie {
 		this.version(6).stores({ daily_milk: 'id, farm, date, [farm+date], updated_at' });
 		this.version(7).stores({ paddock_movements: 'id, farm, date, destination, lot, updated_at' });
 		this.version(8).stores({ pasture_payments: 'id, farm, agreement, period, date, updated_at' });
+		this.version(9).stores({ calvings: 'id, farm, mother, date, updated_at' });
 	}
 }
 

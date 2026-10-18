@@ -93,7 +93,7 @@
 	};
 	const CATEGORY_LABELS: Record<string, string> = {
 		calf: 'Ternero/a', heifer: 'Novillo/a', cow_lactating: 'Vaca en ordeño',
-		cow_dry: 'Vaca seca', bull: 'Toro reproductor'
+		cow_nursing: 'Vaca con cría', cow_dry: 'Vaca seca', bull: 'Toro reproductor'
 	};
 
 	let weightCurve = $derived.by(() => {
@@ -174,7 +174,7 @@
 			<Tabs.Content value="general">
 				<div class="flex flex-col gap-4 pt-2">
 					<section class="panel p-5 sm:p-7">
-						<h2 class="section-title mb-3">Datos del animal</h2>{#if animal.lot}<a class="back-link" href="/lots/{animal.lot}">Ver lote: {lotName}</a>{/if}
+						<h2 class="section-title mb-3">Datos del animal</h2>{#if animal.birth_record}<a class="back-link" href="/reproduction/calvings/{animal.birth_record}">Ver parto y madre</a>{/if}{#if animal.lot}<a class="back-link" href="/lots/{animal.lot}">Ver lote: {lotName}</a>{/if}
 						{#if animal.birth_date}
 							<p><span class="font-bold">Nacimiento:</span> {animal.birth_date}</p>
 						{/if}
@@ -222,7 +222,7 @@
 						<ul class="flex flex-col gap-1">
 							{#each weighings as w (w.id)}
 								<li class="flex flex-wrap justify-between gap-2">
-									<span>{w.date}<span class="ml-2 text-xs text-[#61755e]">{w.source_type === 'sale' ? 'Peso de venta' : w.source_type === 'agreement_initial' ? 'Peso al iniciar acuerdo' : w.source_type === 'agreement_final' ? 'Peso final de acuerdo' : 'Pesaje registrado'}</span>{#if $currentFarm?.role === 'admin' && w.source_id}<a class="ml-2 text-xs font-semibold underline" href={w.source_type === 'sale' ? `/sales/${w.source_id}` : `/agreements/${w.source_id}`}>Ver origen</a>{/if}</span>
+									<span>{w.date}<span class="ml-2 text-xs text-[#61755e]">{w.source_type === 'birth' ? 'Peso al nacer' : w.source_type === 'sale' ? 'Peso de venta' : w.source_type === 'agreement_initial' ? 'Peso al iniciar acuerdo' : w.source_type === 'agreement_final' ? 'Peso final de acuerdo' : 'Pesaje registrado'}</span>{#if ($currentFarm?.role === 'admin' || w.source_type === 'birth') && w.source_id}<a class="ml-2 text-xs font-semibold underline" href={w.source_type === 'birth' ? `/reproduction/calvings/${w.source_id}` : w.source_type === 'sale' ? `/sales/${w.source_id}` : `/agreements/${w.source_id}`}>Ver origen</a>{/if}</span>
 									<span class="font-extrabold">{w.weight_kg} kg</span>
 								</li>
 							{:else}
@@ -248,7 +248,7 @@
 
 			<Tabs.Content value="reproduction">
 				<section class="mt-2 rounded-xl border border-[#dde3d3] bg-white p-4">
-					<h2 class="section-title mb-3">Eventos reproductivos</h2>{#if canEdit && animal.sex === 'H'}<a class="back-link" href="/reproduction?animal={animal.id}">Registrar evento</a>{/if}
+					<h2 class="section-title mb-3">Eventos reproductivos</h2>{#if canEdit && animal.sex === 'H'}<a class="back-link" href="/reproduction?animal={animal.id}">Registrar evento</a><a class="action-button" href="/reproduction/calving?animal={animal.id}">Registrar parto y crías</a>{/if}<a class="back-link" href="/reproduction/calvings">Historial de partos</a>
 					<ul class="flex flex-col gap-1">
 						{#each reproEvents as e (e.id)}
 							<li>
@@ -256,7 +256,7 @@
 									<span>{e.date}</span>
 									<span class="font-extrabold">{TYPE_LABELS[e.type] ?? e.type}</span>
 								</div>
-								{#if e.estimated_calving_date}
+								{#if e.calving_record}<a class="back-link" href="/reproduction/calvings/{e.calving_record}">Ver parto y crías</a>{/if}{#if e.estimated_calving_date}
 									<p class="ml-4 text-sm">
 										Parto estimado: {e.estimated_calving_date} · Secado: {e.suggested_drying_off_date}
 									</p>

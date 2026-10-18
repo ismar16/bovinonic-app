@@ -45,7 +45,7 @@ def reconcile_weights(farm_id, *, apps=None, using='default'):
             add('agreement_initial',agreement.id,row['animal'],agreement.start_date,row.get('initial_weight'))
             if (str(agreement.id),row['animal']) not in sold:
                 add('agreement_final',agreement.id,row['animal'],row.get('final_date'),row.get('final_weight'))
-    current = {w.id:w for w in Weighing.objects.using(using).filter(farm_id=farm_id).exclude(source_type='manual')}
+    current = {w.id:w for w in Weighing.objects.using(using).filter(farm_id=farm_id,source_type__in=['sale','agreement_initial','agreement_final'])}
     now = timezone.now()
     for pk, values in expected.items():
         row = current.get(pk)

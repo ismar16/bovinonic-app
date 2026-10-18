@@ -11,7 +11,7 @@ from apps.health.models import HealthEvent
 from apps.livestock.models import Animal, AnimalLot, AnimalAgreement, AnimalSale, SalePayment, SaleExpense, Brand, Owner, Paddock, PaddockMovement, PasturePayment
 from apps.livestock.agreements import amount, calculate_settlement
 from apps.production.models import Milking, Weighing, DailyMilkProduction
-from apps.reproduction.models import ReproductiveEvent
+from apps.reproduction.models import ReproductiveEvent, CalvingRecord
 
 
 class FarmSerializer(serializers.ModelSerializer):
@@ -255,6 +255,10 @@ class AnimalSerializer(FarmScopedSerializer):
     def validate(self, attrs):
         record_id = str(self.context.get('record_id', ''))
         existing = Animal.objects.filter(pk=record_id, farm_id=self.context.get('farm_id')).first() if record_id else None
+        if existing and existing.birth_record and (attrs.get('mother',existing.mother)!=existing.mother or attrs.get('birth_date',existing.birth_date)!=existing.birth_date):
+            raise serializers.ValidationError('La madre y fecha de nacimiento están vinculadas a un parto confirmado. Conservá esos datos al editar la ficha.')
+        if existing and existing.last_calving and attrs.get('category',existing.category)!=existing.category and str(self.initial_data.get('last_calving',''))!=str(existing.last_calving):
+            raise serializers.ValidationError('La categoría cambió al registrar un parto. Sincronizá la ficha antes de volver a editarla.')
         if existing and attrs.get('paddock') != existing.paddock:
             raise serializers.ValidationError({'paddock': 'La ubicación cambió o requiere un traslado. Sincronizá y usá Mover animales para conservar el historial.'})
         sold = any(r['animal'] == record_id for s in AnimalSale.objects.filter(farm_id=self.context.get('farm_id')) for r in s.lines)
@@ -267,7 +271,7 @@ class AnimalSerializer(FarmScopedSerializer):
         if changed and (changed > timezone.localdate() or (birth and changed < birth)):
             raise serializers.ValidationError({'status_changed_at': 'La fecha debe estar entre el nacimiento y hoy.'})
         sex, category = attrs.get('sex'), attrs.get('category')
-        if (sex == 'H' and category == 'bull') or (sex == 'M' and category in ('cow_lactating', 'cow_dry')):
+        if (sex == 'H' and category == 'bull') or (sex == 'M' and category in ('cow_lactating', 'cow_dry', 'cow_nursing')):
             raise serializers.ValidationError({'category': 'La categoría no corresponde al sexo.'})
         for field, required_sex in (('mother', 'H'), ('father', 'M')):
             parent = attrs.get(field)
@@ -280,9 +284,9 @@ class AnimalSerializer(FarmScopedSerializer):
         fields = [
             "id", "farm", "tag", "name", "sex", "category", "birth_date",
             "mother", "father", "paddock", "owner", "brand", "lot", "status",
-            "status_changed_at", "status_reason", "photo_url", "updated_at", "paddock_since", "paddock_movement",
+            "status_changed_at", "status_reason", "photo_url", "updated_at", "paddock_since", "paddock_movement", "birth_record", "last_calving",
         ]
-        read_only_fields = ["updated_at", "paddock_since", "paddock_movement"]
+        read_only_fields = ["updated_at", "paddock_since", "paddock_movement", "birth_record", "last_calving"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -359,6 +363,13 @@ class DailyMilkProductionSerializer(FarmScopedSerializer):
 class ReproductiveEventSerializer(AnimalEventSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        existing = ReproductiveEvent.objects.filter(pk=self.context.get('record_id')).first() if self.context.get('record_id') else None
+        if existing and existing.calving_record:
+            if any(getattr(existing,key)!=value for key,value in attrs.items()):
+                raise serializers.ValidationError('Este evento está vinculado a un parto confirmado. Su historial se conserva desde el registro del parto.')
+            return attrs
+        if attrs['type']=='calving' and CalvingRecord.objects.filter(farm_id=self.context.get('farm_id'),mother=attrs['animal'],date=attrs['date']).exists():
+            raise serializers.ValidationError('Ya hay un parto completo para esta fecha. Consultá su historial de crías.')
         if attrs['animal'].sex != 'H':
             raise serializers.ValidationError({'animal': 'Seleccioná una hembra para este evento.'})
         if attrs['type'] == 'service' and not attrs.get('service_method'):
@@ -372,12 +383,27 @@ class ReproductiveEventSerializer(AnimalEventSerializer):
         fields = [
             "id", "animal", "date", "type", "service_method", "bull_straw",
             "palpation_result", "estimated_calving_date",
-            "suggested_drying_off_date", "updated_at", "historical_warning",
+            "suggested_drying_off_date", "updated_at", "historical_warning", "calving_record",
         ]
         read_only_fields = [
             "estimated_calving_date", "suggested_drying_off_date",
-            "updated_at", "historical_warning",
+            "updated_at", "historical_warning", "calving_record",
         ]
+
+
+class CalvingRecordSerializer(FarmScopedSerializer):
+    class Meta:
+        model = CalvingRecord
+        fields = ['id','farm','mother','date','delivery','maternal_status','mother_version','calves','location','notes','result','updated_at']
+        read_only_fields = ['result','updated_at']
+        validators = []
+
+    def validate(self, attrs):
+        from apps.reproduction.calvings import normalize_calving
+        try:
+            return normalize_calving(attrs,self.context['farm_id'],self.context['record_id'])
+        except (ValueError,TypeError,KeyError,AttributeError) as exc:
+            raise serializers.ValidationError({'calving':str(exc) or 'Revisá los datos del parto.'})
 
 
 class HealthEventSerializer(AnimalEventSerializer):

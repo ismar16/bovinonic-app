@@ -99,6 +99,8 @@ class AnimalLot(TimeStampedModel):
 class Animal(TimeStampedModel):
     paddock_since = models.DateField(null=True, blank=True, editable=False)
     paddock_movement = models.UUIDField(null=True, editable=False)
+    birth_record = models.UUIDField(null=True, editable=False)
+    last_calving = models.UUIDField(null=True, editable=False)
     class Sex(models.TextChoices):
         MALE = "M", _("Macho")
         FEMALE = "H", _("Hembra")
@@ -108,6 +110,7 @@ class Animal(TimeStampedModel):
         HEIFER = "heifer", _("Novillo/a")
         COW_LACTATING = "cow_lactating", _("Vaca en ordeño")
         COW_DRY = "cow_dry", _("Vaca seca")
+        COW_NURSING = "cow_nursing", _("Vaca con cría")
         BULL = "bull", _("Toro reproductor")
 
     class Status(models.TextChoices):

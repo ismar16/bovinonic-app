@@ -4,12 +4,15 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.production.models import AnimalEvent
+from apps.core.models import Farm, TimeStampedModel
+from apps.livestock.models import Animal
 
 GESTATION_DAYS = 283
 DRYING_OFF_DAYS_BEFORE_CALVING = 60
 
 
 class ReproductiveEvent(AnimalEvent):
+    calving_record = models.UUIDField(null=True, editable=False)
     class Type(models.TextChoices):
         HEAT = "heat", _("Celo detectado")
         SERVICE = "service", _("Servicio (monta/IA)")
@@ -64,3 +67,20 @@ class ReproductiveEvent(AnimalEvent):
 
     def __str__(self):
         return f"{self.animal.tag} @ {self.date}: {self.get_type_display()}"
+
+
+class CalvingRecord(TimeStampedModel):
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='calvings')
+    mother = models.ForeignKey(Animal, on_delete=models.PROTECT, related_name='calvings')
+    date = models.DateField()
+    delivery = models.CharField(max_length=16, choices=[('normal','Normal'),('assisted','Asistido'),('complicated','Con complicaciones')], default='normal')
+    maternal_status = models.CharField(max_length=24, choices=[('keep','Conservar categoría'),('cow_lactating','Vaca en ordeño'),('cow_nursing','Vaca con cría'),('cow_dry','Vaca seca')], default='keep')
+    mother_version = models.CharField(max_length=64)
+    calves = models.JSONField(default=list)
+    location = models.JSONField(default=dict)
+    notes = models.CharField(max_length=1000, blank=True)
+    result = models.JSONField(default=dict, editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['farm','mother','date'],name='uniq_calving_mother_date')]
+        indexes = [models.Index(fields=['farm','updated_at'])]

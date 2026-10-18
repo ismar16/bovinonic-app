@@ -16,6 +16,7 @@ from apps.reproduction.models import (
     DRYING_OFF_DAYS_BEFORE_CALVING,
     GESTATION_DAYS,
     ReproductiveEvent,
+    CalvingRecord,
 )
 
 from .permissions import HasFarmMembership
@@ -36,9 +37,11 @@ from .serializers import (
     PasturePaymentSerializer,
     ReproductiveEventSerializer,
     WeighingSerializer,
+    CalvingRecordSerializer,
 )
 
 PULL_COLLECTIONS = {
+    'calvings': (CalvingRecord, CalvingRecordSerializer),
     'pasture_payments': (PasturePayment, PasturePaymentSerializer),
     'paddock_movements': (PaddockMovement, PaddockMovementSerializer),
     "owners": (Owner, OwnerSerializer),
@@ -82,6 +85,7 @@ WRITE_COLLECTIONS = {
     'sale_expenses': (SaleExpense, SaleExpenseSerializer, FarmMembership.Role.ADMIN),
     'paddock_movements': (PaddockMovement, PaddockMovementSerializer, FarmMembership.Role.TECHNICIAN),
     'pasture_payments': (PasturePayment, PasturePaymentSerializer, FarmMembership.Role.ADMIN),
+    'calvings': (CalvingRecord, CalvingRecordSerializer, FarmMembership.Role.TECHNICIAN),
 }
 
 EVENT_MODELS = (Weighing, Milking, ReproductiveEvent, HealthEvent)
@@ -197,6 +201,23 @@ class SyncBatchView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
                 for name, (model, serializer_class, records) in authorized.items():
+                    if model is CalvingRecord:
+                        from apps.reproduction.calvings import apply_calving
+                        entries=[]
+                        for record in records:
+                            record_id=record.get('id')
+                            data={k:v for k,v in record.items() if k!='id'};data['farm']=str(farm_id)
+                            serializer=serializer_class(data=data,context={'farm_id':farm_id,'record_id':record_id})
+                            if not serializer.is_valid():
+                                errors[name]=[{'id':record_id,'error':serializer.errors}]
+                                raise ValueError('Revisá el parto y sus crías.')
+                            existing=CalvingRecord.objects.filter(pk=record_id).first()
+                            if not existing:
+                                obj=CalvingRecord.objects.create(id=record_id,**serializer.validated_data)
+                                apply_calving(obj)
+                            entries.append({'id':str(record_id),'status':'updated' if existing else 'created'})
+                        results[name]=entries
+                        continue
                     if model is PaddockMovement:
                         entries = []
                         for record in records:

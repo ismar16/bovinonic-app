@@ -20,7 +20,7 @@
 	let owners = $state<Owner[]>([]); let brands = $state<Brand[]>([]); let paddocks = $state<Paddock[]>([]);
 	let loading = $state(true); let saving = $state(false); let savedId = $state(''); let error = $state(''); let notFound = $state(false);
 	const canEdit = $derived(['admin', 'technician'].includes($currentFarm?.role ?? ''));
-	const categories = $derived([{ value: 'calf', label: 'Ternero/a' }, { value: 'heifer', label: 'Novillo/a' }, ...(sex === 'H' ? [{ value: 'cow_lactating', label: 'Vaca en ordeño' }, { value: 'cow_dry', label: 'Vaca seca' }] : [{ value: 'bull', label: 'Toro reproductor' }])]);
+	const categories = $derived([{ value: 'calf', label: 'Ternero/a' }, { value: 'heifer', label: 'Novillo/a' }, ...(sex === 'H' ? [{ value: 'cow_lactating', label: 'Vaca en ordeño' }, { value: 'cow_nursing', label: 'Vaca con cría' }, { value: 'cow_dry', label: 'Vaca seca' }] : [{ value: 'bull', label: 'Toro reproductor' }])]);
 	const suggested = $derived(brands.find((b) => b.title_owner === owner));
 	$effect(() => { if (!categories.some((c) => c.value === category)) category = 'calf'; });
 	onMount(() => {
@@ -68,7 +68,7 @@
 				<label class="field-label">Nombre<input class="field" bind:value={name} maxlength="150" placeholder="Nombre del animal" /></label>
 				<label class="field-label">Sexo *<select class="field" bind:value={sex}><option value="H">Hembra</option><option value="M">Macho</option></select></label>
 				<label class="field-label">Categoría *<select class="field" bind:value={category}>{#each categories as c}<option value={c.value}>{c.label}</option>{/each}</select></label>
-				<label class="field-label">Fecha de nacimiento<input type="date" class="field" bind:value={birthDate} max={farmDate()} /><span class="field-help">Dejala vacía si no la conocés.</span></label>
+				<label class="field-label">Fecha de nacimiento<input type="date" class="field" bind:value={birthDate} disabled={!!original?.birth_record} max={farmDate()} /><span class="field-help">Dejala vacía si no la conocés.</span></label>
 			</div></section>
 			<section class="form-section"><h2 class="section-title">Ubicación y propiedad</h2><div class="form-grid">
 				<label class="field-label">Lote<select class="field" bind:value={lot}><option value="">Sin lote</option>{#each lots as l}<option value={l.id}>{l.name}</option>{/each}</select><a class="field-help underline" href="/lots">Administrar lotes de animales</a></label>
@@ -77,7 +77,7 @@
 				<label class="field-label">Fierro<select class="field" bind:value={brand}><option value="">Orejano (sin fierro)</option>{#each brands as b}<option value={b.id}>{b.code}</option>{/each}</select></label>
 			</div>{#if suggested && suggested.id !== brand}<button type="button" class="back-link mb-0" onclick={() => brand = suggested.id}>Usar el fierro {suggested.code} del propietario</button>{/if}
 			{#if $currentFarm?.role === 'admin'}<a href="/catalogs" class="field-help underline">Administrar potreros, propietarios y fierros</a>{/if}</section>
-			<details class="form-section"><summary class="cursor-pointer text-sm font-semibold">Parentesco (opcional){mother || father ? ' · Registrado' : ''}</summary><div class="form-grid mt-4"><div class="space-y-3">{#if mother}<p class="notice">Madre: {mother.tag} · {mother.name}</p><button type="button" class="quiet-button" onclick={() => mother = null}>Quitar madre</button>{:else}<TagSearch onSelect={(a) => mother = a} sex="H" label="Buscar madre" excludeId={original?.id} />{/if}</div><div class="space-y-3">{#if father}<p class="notice">Padre: {father.tag} · {father.name}</p><button type="button" class="quiet-button" onclick={() => father = null}>Quitar padre</button>{:else}<TagSearch onSelect={(a) => father = a} sex="M" label="Buscar padre" excludeId={original?.id} />{/if}</div></div></details>
+			<details class="form-section"><summary class="cursor-pointer text-sm font-semibold">Parentesco (opcional){mother || father ? ' · Registrado' : ''}</summary><div class="form-grid mt-4"><div class="space-y-3">{#if original?.birth_record}<a class="back-link" href="/reproduction/calvings/{original.birth_record}">Madre y nacimiento vinculados al parto: {mother?.tag ?? "Sin datos"}</a>{:else if mother}<p class="notice">Madre: {mother.tag} · {mother.name}</p><button type="button" class="quiet-button" onclick={() => mother = null}>Quitar madre</button>{:else}<TagSearch onSelect={(a) => mother = a} sex="H" label="Buscar madre" excludeId={original?.id} />{/if}</div><div class="space-y-3">{#if father}<p class="notice">Padre: {father.tag} · {father.name}</p><button type="button" class="quiet-button" onclick={() => father = null}>Quitar padre</button>{:else}<TagSearch onSelect={(a) => father = a} sex="M" label="Buscar padre" excludeId={original?.id} />{/if}</div></div></details>
 		</fieldset>
 		<Notice tone="error" message={error} />
 		{#if savedId}<Notice tone="success" message={$pendingCount ? 'Animal guardado en este dispositivo. Los cambios están pendientes de envío.' : 'Animal guardado. No hay registros pendientes de envío.'} />{/if}

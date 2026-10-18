@@ -54,7 +54,7 @@ function setup(globals = {}) {
     availableFarms: store([])
   };
   const db = {};
-  const names = ['owners', 'brands', 'paddocks', 'paddock_movements', 'pasture_payments', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
+  const names = ['owners', 'brands', 'paddocks', 'paddock_movements', 'calvings', 'pasture_payments', 'lots', 'animals', 'agreements', 'sales', 'sale_payments', 'sale_expenses', 'weighings', 'milkings', 'daily_milk',
     'reproductive_events', 'health_events', 'outbox', 'sync_meta'];
   for (const name of names) db[name] = table(name === 'sync_meta' ? 'key' : 'id');
   db.tables = names.map((name) => db[name]);
@@ -266,10 +266,10 @@ test('new sync ignores the old device cursor and saves the server cursor', async
 
 test('failed download leaves the previous cursor intact', async () => {
   const { sync, db, api } = setup();
-  await db.sync_meta.put({ key: 'last_pull_server_at_v10', value: 'previous' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v11', value: 'previous' });
   api.pull = async () => { throw new TypeError('offline'); };
   await sync.syncNow();
-  assert.equal((await db.sync_meta.get('last_pull_server_at_v10')).value, 'previous');
+  assert.equal((await db.sync_meta.get('last_pull_server_at_v11')).value, 'previous');
 });
 
 test('pending merged milking is retained for the next upload', async () => {
@@ -438,7 +438,7 @@ test('a temporary API failure does not permanently lock out manual or automatic 
 test('server reset clears stale records and pending uploads before any push', async () => {
   const { sync, db, api, stores } = setup();
   await sync.enqueue('animals', { id: 'old-test' });
-  await db.sync_meta.put({ key: 'last_pull_server_at_v10', value: 'old-cursor' });
+  await db.sync_meta.put({ key: 'last_pull_server_at_v11', value: 'old-cursor' });
   api.syncState = async () => ({ data_version: 1, farm_name: 'Finca La Bendición' });
   let pushed = false;
   api.pushBatch = async () => { pushed = true; return {}; };
@@ -763,4 +763,39 @@ test('sale reference shows the confirmed farm sequence and hides internal UUIDs 
   assert.equal(saleReference({number:1}),'V-000001');assert.equal(saleReference({number:1234567}),'V-1234567');
   assert.equal(saleReference({id:'8b82896c-968f-4fbf-9529-889ebab3e20b'}),'Pendiente de numeración');
   assert.equal(saleReference({number:null}),'Pendiente de numeración');
+});
+function calvingHelpers(){return load('calvings',{'./forms':load('forms',{})});}
+function motherForCalving(){return {id:'mother',farm:'farm-a',sex:'H',category:'cow_dry',status:'active',tag:'M-1',name:'Madre',birth_date:'2020-01-01',updated_at:'2026-10-01T10:00:00Z'};}
+function calvingDraft(){return {id:'calving',farm:'farm-a',mother:'mother',date:'2026-10-16',delivery:'normal',maternal_status:'cow_nursing',mother_version:motherForCalving().updated_at,notes:' ',calves:[{mode:'new',animal:'new-calf',tag:'C-1',name:'Nueva',sex:'H',weight_kg:'30,25'}],location:{change_mother_lot:false,mother_lot:null,change_mother_paddock:false,mother_paddock:null,calf_lot:null,calf_paddock:null,calf_owner:null}};}
+
+test('calving normalizes birth weights without mutating the draft and supports twins stillborn and provisional calves',()=>{
+ const input=calvingDraft();input.calves.push({mode:'stillborn',animal:'ignored',sex:'unknown',name:'Gemelo',weight_kg:null});input.calves[0].tag='';
+ const data=calvingHelpers().validateCalving(input,motherForCalving(),[],'2026-10-17');assert.equal(data.calves[0].weight_kg,'30.25');assert.equal(input.calves[0].weight_kg,'30,25');assert.equal(data.calves[0].tag,'');assert.equal(data.calves[1].animal,null);assert.equal(data.notes,'');
+});
+test('already registered calf can be linked and incompatible birth mother or duplicate calf is rejected',()=>{
+ const calf={id:'existing',farm:'farm-a',sex:'M',tag:'C-2',mother:'mother',birth_date:'2026-10-16'};const input=calvingDraft();input.calves=[{mode:'existing',animal:'existing',weight_kg:null,tag:'ignored'}];
+ const validate=(animals=[calf])=>calvingHelpers().validateCalving(input,motherForCalving(),animals,'2026-10-17');assert.equal(validate().calves[0].tag,undefined);
+ for(const patch of [{farm:'other'},{mother:'other'},{birth_date:'2026-10-15'},{birth_record:'another'}])assert.throws(()=>validate([{...calf,...patch}]));
+ input.calves.push({...input.calves[0]});assert.throws(()=>validate(),/una sola vez/);
+});
+test('calving rejects stale mothers future dates duplicate tags missing sex and backwards paddock changes',()=>{
+ const validate=(input,mother=motherForCalving(),animals=[])=>calvingHelpers().validateCalving(input,mother,animals,'2026-10-17');
+ for(const patch of [{mother_version:'old'},{date:'2099-01-01'},{date:'2020-01-01'},{calves:[]},{maternal_status:'bull'}])assert.throws(()=>validate({...calvingDraft(),...patch}));
+ const input=calvingDraft();assert.throws(()=>validate(input,motherForCalving(),[{id:'taken',farm:'farm-a',tag:'c-1'}]),/arete/);
+ input.calves[0].sex='unknown';assert.throws(()=>validate(input));
+ input.calves[0].sex='H';input.location.change_mother_paddock=true;input.location.mother_paddock='target';assert.throws(()=>validate(input,{...motherForCalving(),paddock:'other',paddock_since:'2026-10-17'}),/anterior/);
+});
+test('offline calving is one pending operation and creates no fake animals before confirmation',async()=>{
+ const {sync,db,api,stores}=setup();stores.currentFarm.set({id:'farm-a',role:'technician'});await sync.enqueue('calvings',calvingDraft());assert.equal(await db.animals.count(),0);assert.equal(await db.outbox.count(),1);
+ api.pushBatch=async()=>{throw new TypeError('network');};await sync.syncNow();assert.equal(await db.outbox.count(),1);
+ api.pushBatch=async(_farm,data)=>{assert.equal(data.calvings.length,1);return {calvings:[{id:'calving',status:'created'}]};};
+ api.pull=async()=>({calvings:[{...calvingDraft(),result:{event:'event',calves:[]}}],animals:[{...motherForCalving(),category:'cow_nursing'},{id:'new-calf',farm:'farm-a',mother:'mother',birth_record:'calving'}]});
+ await sync.syncNow();assert.equal(await db.outbox.count(),0);assert.equal((await db.animals.get('new-calf')).birth_record,'calving');assert.equal((await db.animals.get('mother')).category,'cow_nursing');
+});
+test('lost calving response is recovered before correction or discard and technician access is scoped',async()=>{
+ const {sync,db,api,stores}=setup();stores.currentFarm.set({id:'farm-a',role:'operator'});await assert.rejects(sync.enqueue('calvings',calvingDraft()),/rol/);
+ stores.currentFarm.set({id:'farm-a',role:'technician'});await sync.enqueue('calvings',calvingDraft());api.financialReceipt=async()=>({record:{...calvingDraft(),result:{event:'event'}}});
+ assert.equal(await sync.reviewFinancialPending('calvings','calving',true),true);assert.equal(await db.outbox.count(),0);assert.equal((await db.calvings.get('calving')).result.event,'event');
+ await sync.enqueue('calvings',{...calvingDraft(),id:'unconfirmed'});api.financialReceipt=async()=>{throw new TypeError('network');};await assert.rejects(sync.reviewFinancialPending('calvings','unconfirmed',true));assert.equal(await db.outbox.count(),1);
+ api.financialReceipt=async()=>({record:null});assert.equal(await sync.reviewFinancialPending('calvings','unconfirmed',true),false);assert.equal(await db.calvings.get('unconfirmed'),undefined);assert.ok(await db.calvings.get('calving'));
 });
